@@ -361,6 +361,18 @@ export class RoomService {
     room.matchInProgress = true;
   }
 
+  resetMatchForRematch(session: Session): void {
+    const { room, player } = this.authenticate(session);
+    if (player.id !== room.hostId) {
+      throw new RoomServiceError("FORBIDDEN", "Only the host can start a rematch.");
+    }
+    if (!room.matchInProgress || !room.matchSchedule) {
+      throw new RoomServiceError("WRONG_PHASE", "There is no completed match to rematch.");
+    }
+    room.matchInProgress = false;
+    room.matchSchedule = null;
+  }
+
   getLobbyView(session: Session): PlayerView {
     const { room, player } = this.authenticate(session);
     const schedule = room.matchSchedule;

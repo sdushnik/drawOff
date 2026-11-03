@@ -5,6 +5,7 @@ import {
   emptyCanvas,
   type CanvasSnapshot,
   type DrawOp,
+  type FinalResult,
   type PlayerView,
   type RoundResult,
   type Session,
@@ -116,6 +117,18 @@ export class MatchStateMachine {
     this.progress.set(session.roomCode, progress);
     this.scheduleTimer(session.roomCode, progress);
     this.onTransition(session.roomCode);
+  }
+
+  rematch(session: Session): void {
+    const { room, player, progress } = this.requireMatchMember(session);
+    this.requirePhase(progress, "FINAL_RESULT");
+    if (player.id !== room.hostId) {
+      throw new RoomServiceError("FORBIDDEN", "Only the host can start a rematch.");
+    }
+
+    this.rooms.resetMatchForRematch(session);
+    this.clearProgress(room.code);
+    this.onTransition(room.code);
   }
 
   selectPrompt(session: Session, rawPrompt: unknown): void {
@@ -319,6 +332,28 @@ export class MatchStateMachine {
       hideArtistIdentities
         ? anonymousArtistIds.get(playerId)?.id ?? playerId
         : playerId;
+    const finalResult: FinalResult | null = progress.phase === "FINAL_RESULT"
+      ? (() => {
+          const order = room.matchSchedule!.order;
+          const standings = order
+            .map((playerId, index) => ({
+              playerId,
+              score: progress.scores[playerId] ?? 0,
+              index,
+            }))
+            .sort((left, right) => right.score - left.score || left.index - right.index)
+            .map(({ playerId, score }) => ({ playerId, score }));
+          const topScore = standings[0]?.score ?? 0;
+          return {
+            winners: standings
+              .filter(({ score }) => score === topScore)
+              .map(({ playerId }) => playerId),
+            standings,
+            rounds: room.matchSchedule!.totalRounds,
+            cycles: room.matchSchedule!.cycles,
+          };
+        })()
+      : null;
 
     return playerViewSchema.parse({
       ...lobbyView,
@@ -389,6 +424,7 @@ export class MatchStateMachine {
         ["ROUND_RESULT", "FINAL_RESULT"].includes(progress.phase)
           ? progress.roundResult
           : null,
+      finalResult,
       match: {
         roundIndex: progress.roundIndex,
         totalRounds: room.matchSchedule.totalRounds,

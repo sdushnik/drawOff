@@ -128,7 +128,9 @@ export function createSocketGameService(serverUrl: string): GameService {
     submitRatings: async (session, ratings) => {
       await request("ratings:submit", { session, ratings });
     },
-    rematch: unsupported,
+    rematch: async (session) => {
+      await request("match:rematch", { session });
+    },
     returnToLobby: unsupported,
     subscribe(
       session: Session,

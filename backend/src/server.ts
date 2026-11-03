@@ -408,6 +408,21 @@ function registerRoomHandlers(
       );
     });
 
+    socket.on("match:rematch", (payload, acknowledge) => {
+      handleSocketRequest(
+        socket,
+        payload,
+        clientToServerPayloadSchemas["match:rematch"],
+        clientToServerResponseSchemas["match:rematch"],
+        acknowledge,
+        ({ session }) => {
+          assertAttached(socket, session);
+          matchStateMachine.rematch(attachedSessions.get(socket.id)!);
+          return {};
+        },
+      );
+    });
+
     socket.on("prompt:select", (payload, acknowledge) => {
       handleSocketRequest(
         socket,

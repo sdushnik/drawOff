@@ -103,6 +103,14 @@ submissions are validated and scored by the state machine; a complete valid
 submission enters `ROUND_RESULT` for 12 seconds. The server timer then advances
 to the next `ROLE_REVEAL`, or to `FINAL_RESULT` after the last scheduled round.
 
+At `FINAL_RESULT`, each player view includes server-derived cumulative standings,
+all players tied for the highest total, and the completed round and cycle counts.
+Only the host can send `match:rematch`, and the server rejects it before the
+final result. A valid rematch clears the schedule and all match progress while
+preserving the private room, join code, guest identities, selected cycle count,
+and connection state. The clean lobby is broadcast to every connected room
+participant; the next `match:start` freezes the players connected at that time.
+
 Boundary methods authenticate the saved room session, frozen roster
 membership, current Judge role, phase, and server-clock deadline before
 mutating phase state. Client timestamps are not accepted. Repeated, stale, and
