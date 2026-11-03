@@ -324,7 +324,8 @@ test("live drawing ops are private, ordered, idempotent, and recover from a miss
         (view.liveCanvases?.some((canvas) => canvas.sequence === 1) ?? false),
     );
     assert.equal((await request(reconnectingJudge, "session:resume", { session: judge })).ok, true);
-    assert.equal((await recovered).liveCanvases?.[0]?.canvas.rev, 4);
+    const judgeBeforeDeadline = await recovered;
+    assert.equal(judgeBeforeDeadline.liveCanvases?.[0]?.canvas.rev, 4);
 
     const deadline = judgeView.deadline!;
     clock.advanceTo(deadline);
@@ -334,6 +335,63 @@ test("live drawing ops are private, ordered, idempotent, and recover from a miss
     });
     assert.equal(atDeadline.ok, false);
     if (!atDeadline.ok) assert.equal(atDeadline.error.code, "DEADLINE_PASSED");
+
+    const lateSubmit = await request(otherArtistSocket, "drawing:submit", {
+      session: otherArtist,
+    });
+    assert.equal(lateSubmit.ok, false);
+    if (!lateSubmit.ok) assert.equal(lateSubmit.error.code, "DEADLINE_PASSED");
+
+    clock.advanceTo(deadline + 1);
+    const afterDeadline = await request(otherArtistSocket, "drawing:ops", {
+      session: otherArtist,
+      ops: [{ type: "clear", id: "after-deadline" }],
+    });
+    assert.equal(afterDeadline.ok, false);
+    if (!afterDeadline.ok) assert.equal(afterDeadline.error.code, "DEADLINE_PASSED");
+
+    const frozenJudgeViewPromise = waitForView(
+      reconnectingJudge,
+      (view) => view.phase === "JUDGING",
+    );
+    const frozenArtistViewPromise = waitForView(
+      otherArtistSocket,
+      (view) => view.phase === "JUDGING",
+    );
+    clock.runNext();
+    const [frozenJudgeView, frozenArtistView] = await Promise.all([
+      frozenJudgeViewPromise,
+      frozenArtistViewPromise,
+    ]);
+    assert.deepEqual(
+      frozenJudgeView.liveCanvases?.map(({ label }) => label),
+      judgeBeforeDeadline.liveCanvases?.map(({ label }) => label),
+    );
+    assert.ok(frozenJudgeView.liveCanvases?.every(({ locked }) => locked));
+    assert.deepEqual(
+      frozenJudgeView.liveCanvases?.map(({ canvas }) => canvas),
+      judgeBeforeDeadline.liveCanvases?.map(({ canvas }) => canvas),
+    );
+    assert.deepEqual(
+      frozenJudgeView.liveCanvases?.[1]?.canvas.actions.map(({ type }) => type),
+      ["clear"],
+    );
+    assert.equal(frozenJudgeView.liveCanvases?.[0]?.canvas.actions.length, 2);
+    assert.equal(frozenArtistView.myCanvas?.locked, true);
+
+    const afterTransition = await request(otherArtistSocket, "drawing:ops", {
+      session: otherArtist,
+      ops: [{ type: "clear", id: "after-transition" }],
+    });
+    assert.equal(afterTransition.ok, false);
+    if (!afterTransition.ok) assert.equal(afterTransition.error.code, "WRONG_PHASE");
+    const submitAfterTransition = await request(otherArtistSocket, "drawing:submit", {
+      session: otherArtist,
+    });
+    assert.equal(submitAfterTransition.ok, false);
+    if (!submitAfterTransition.ok) {
+      assert.equal(submitAfterTransition.error.code, "WRONG_PHASE");
+    }
 
     const otherRoomView = await request(otherRoomSocket, "state:subscribe", {
       session: otherRoomSession,

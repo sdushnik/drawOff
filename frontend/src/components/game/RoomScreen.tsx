@@ -82,6 +82,13 @@ export function RoomScreen({ room }: { room: GameRoom }) {
           </div>
         )}
 
+        {view.phase === "JUDGING" && view.role === "judge" && view.liveCanvases && (
+          <div className="flex flex-col gap-4">
+            <PromptBanner label="Drawings are frozen" prompt={view.prompt ?? ""} hint="All canvases are locked" />
+            <JudgeLiveView canvases={view.liveCanvases} />
+          </div>
+        )}
+
         {view.phase === "JUDGING" && view.role === "judge" && view.gallery && (
           <JudgingGallery
             key={`${m?.roundIndex}-${view.prompt}`}

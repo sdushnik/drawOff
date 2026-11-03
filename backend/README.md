@@ -96,8 +96,9 @@ membership or any roster update changes.
 current phase and server deadline in each personalized view. Match start enters
 `ROLE_REVEAL` for 4 seconds; its server timer advances to `WORD_SELECTION` for
 30 seconds. A valid `prompt:select` request or the selection timeout advances
-the match to drawing. Drawing lasts 60 seconds before the server enters `JUDGING`; the
-Judge's deadline is `max(45 seconds, 15 seconds × Artist count)`. Rating
+the match to drawing. A single server timer starts with that phase and
+establishes its 60-second deadline; the server enters `JUDGING` at that
+boundary. The Judge's deadline is `max(45 seconds, 15 seconds × Artist count)`. Rating
 handling calls `finishJudging` after accepting the Judge's submission, which
 enters `ROUND_RESULT` for 12 seconds. The server timer then advances to the
 next `ROLE_REVEAL`, or to `FINAL_RESULT` after the last scheduled round.
@@ -110,11 +111,11 @@ callbacks preserve the scheduled boundary rather than extending a phase. The
 clock and timer functions are injectable for deterministic tests.
 
 Prompt selection and its timeout fallback are owned by #11; canvas freeze and
-early submission by #16; scoring, judging timeout behavior, and result data by
-#18. This state machine exposes only their transition boundaries. It does not
-implement disconnect pause or interruption behavior: those must be added via
-the dedicated policies in #20/#21 and cannot bypass ordinary authorization,
-phase, or deadline checks.
+early submission are implemented by #16. Scoring, judging timeout behavior,
+and result data remain in #18. This state machine exposes only their transition
+boundaries. It does not implement disconnect pause or interruption behavior:
+those must be added via the dedicated policies in #20/#21 and cannot bypass
+ordinary authorization, phase, or deadline checks.
 
 The Judge receives three distinct, curated prompt suggestions when
 `WORD_SELECTION` begins. Artists receive neither the suggestions nor a prompt
@@ -148,3 +149,12 @@ sequence advances for each accepted canvas mutation and lock; duplicate or
 rejected operations do not change either counter. A reconnect or
 `state:subscribe` returns the complete current snapshot, so a client can recover
 without replaying missed updates.
+
+An Artist may send `drawing:submit` once before the deadline to lock only their
+own canvas; other Artists can continue drawing. At the 60-second boundary, the
+server locks every remaining canvas—including untouched blank canvases—and
+transitions to `JUDGING` once. The server clock rejects drawing operations and
+submissions at or after the deadline, even if a scheduled timer callback is
+delayed. During judging, the Judge continues to receive every immutable canvas
+under its original anonymous label, while Artists receive only their own
+locked snapshot and cannot modify or resubmit it.

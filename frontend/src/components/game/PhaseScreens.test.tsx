@@ -169,4 +169,21 @@ describe("RoomScreen confirmed prompt", () => {
       if (role === "judge") expect(screen.getByTestId("judge-live-view")).toBeInTheDocument();
     },
   );
+
+  it("shows all locked anonymous canvases to the Judge after the drawing deadline", () => {
+    const view = makeView({
+      phase: "JUDGING",
+      prompt: "confirmed prompt",
+      liveCanvases: [
+        { label: "Artist 1", sequence: 1, canvas: emptyCanvas(), locked: true },
+        { label: "Artist 2", sequence: 2, canvas: emptyCanvas(), locked: true },
+      ],
+    });
+
+    render(<RoomScreen room={{ ...makeRoom(), view } as GameRoom} />);
+
+    expect(screen.getByText("Drawings are frozen")).toBeInTheDocument();
+    expect(screen.getByText("All canvases are locked")).toBeInTheDocument();
+    expect(screen.getByTestId("judge-live-view")).toBeInTheDocument();
+  });
 });

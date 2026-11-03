@@ -210,6 +210,7 @@ export class MatchStateMachine {
     const progress = this.progress.get(room.code);
     if (!progress || !room.matchSchedule) return lobbyView;
 
+    const serverNow = this.readClock();
     const assignment = getMatchRoundAssignment(room.matchSchedule, progress.roundIndex);
     const role =
       progress.phase === "FINAL_RESULT"
@@ -219,7 +220,8 @@ export class MatchStateMachine {
           : assignment.artistIds.includes(authenticated.playerId)
             ? "artist"
             : null;
-    const hideArtistIdentities = role === "judge" && progress.phase === "DRAWING";
+    const hideArtistIdentities =
+      role === "judge" && ["DRAWING", "JUDGING"].includes(progress.phase);
     // Keep roster and schedule slots usable without exposing real Artist identities beside canvases.
     const anonymousArtistIds = new Map(
       assignment.artistIds.map((playerId, index) => [
@@ -248,7 +250,7 @@ export class MatchStateMachine {
           })
         : lobbyView.players,
       hostId: publicPlayerId(lobbyView.hostId),
-      serverNow: this.readClock(),
+      serverNow,
       phase: progress.phase,
       deadline: progress.deadline,
       matchStarted: true,
@@ -273,20 +275,23 @@ export class MatchStateMachine {
                     locked:
                       drawing.locked ||
                       progress.phase !== "DRAWING" ||
-                      (progress.deadline !== null && this.readClock() >= progress.deadline),
+                      (progress.deadline !== null && serverNow >= progress.deadline),
                   }
                 : null;
             })()
           : null,
       liveCanvases:
-        role === "judge" && progress.phase === "DRAWING"
+        role === "judge" && ["DRAWING", "JUDGING"].includes(progress.phase)
           ? assignment.artistIds.map((playerId, index) => {
               const drawing = progress.canvases.get(playerId)!;
               return {
                 label: `Artist ${index + 1}`,
                 sequence: drawing.sequence,
                 canvas: cloneCanvas(drawing.canvas),
-                locked: drawing.locked,
+                locked:
+                  drawing.locked ||
+                  progress.phase !== "DRAWING" ||
+                  (progress.deadline !== null && serverNow >= progress.deadline),
               };
             })
           : null,
@@ -413,6 +418,11 @@ export class MatchStateMachine {
       }
       case "DRAWING": {
         const room = this.rooms.getRoom(roomCode);
+        for (const drawing of progress.canvases.values()) {
+          if (drawing.locked) continue;
+          drawing.locked = true;
+          drawing.sequence += 1;
+        }
         const artistCount = room.matchSchedule?.order.length
           ? room.matchSchedule.order.length - 1
           : 0;

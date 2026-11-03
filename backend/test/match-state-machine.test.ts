@@ -304,6 +304,95 @@ test("stale timer callbacks and repeated deadline delivery apply each transition
   assert.equal(fixture.transitions.length, afterTickCount);
 });
 
+test("drawing locks each canvas at its server deadline and preserves frozen anonymous snapshots", () => {
+  const fixture = createFixture(4);
+  advanceToWordSelection(fixture);
+  fixture.machine.selectPrompt(fixture.host, "lighthouse");
+
+  const [firstArtist, secondArtist, thirdArtist] = fixture.sessions.slice(1);
+  assert.ok(firstArtist && secondArtist && thirdArtist);
+  const drawingDeadline = fixture.view().deadline!;
+  const drawingTimerId = [...fixture.activeTimers.keys()][0]!;
+
+  fixture.machine.submitCanvas(firstArtist);
+  assert.equal(fixture.view().phase, "DRAWING");
+  assert.equal(fixture.view(firstArtist).myCanvas?.locked, true);
+  assert.equal(fixture.view(secondArtist).myCanvas?.locked, false);
+  assert.equal(fixture.view(thirdArtist).myCanvas?.locked, false);
+
+  fixture.setTime(drawingDeadline - 1);
+  assert.equal(
+    fixture.machine.sendDrawOps(secondArtist, [
+      {
+        type: "stroke",
+        id: "last-moment-stroke",
+        tool: "pen",
+        color: "#e5484d",
+        size: 8,
+        points: [10, 10, 30, 40],
+      },
+    ]),
+    true,
+  );
+  fixture.machine.submitCanvas(secondArtist);
+  assert.equal(fixture.view(secondArtist).myCanvas?.canvas.actions.length, 1);
+  assert.equal(fixture.view(secondArtist).myCanvas?.locked, true);
+  assert.equal(fixture.view(thirdArtist).myCanvas?.locked, false);
+  const judgeDuringDrawing = fixture.view();
+  assert.deepEqual(
+    judgeDuringDrawing.liveCanvases?.map(({ label }) => label),
+    ["Artist 1", "Artist 2", "Artist 3"],
+  );
+
+  fixture.setTime(drawingDeadline);
+  expectRoomError(
+    () => fixture.machine.sendDrawOps(thirdArtist, [{ type: "clear", id: "at-deadline" }]),
+    "DEADLINE_PASSED",
+  );
+  expectRoomError(() => fixture.machine.submitCanvas(thirdArtist), "DEADLINE_PASSED");
+  assert.equal(fixture.view(thirdArtist).myCanvas?.locked, true);
+  assert.equal(fixture.view().liveCanvases?.[2]?.locked, true);
+
+  fixture.setTime(drawingDeadline + 1);
+  expectRoomError(
+    () => fixture.machine.sendDrawOps(thirdArtist, [{ type: "clear", id: "after-deadline" }]),
+    "DEADLINE_PASSED",
+  );
+  expectRoomError(() => fixture.machine.submitCanvas(thirdArtist), "DEADLINE_PASSED");
+
+  const transitionCount = fixture.transitions.length;
+  fixture.machine.tick();
+  assert.equal(fixture.view().phase, "JUDGING");
+  assert.equal(fixture.transitions.length, transitionCount + 1);
+  const frozenJudgeView = fixture.view();
+  assert.equal(frozenJudgeView.role, "judge");
+  assert.deepEqual(
+    frozenJudgeView.liveCanvases?.map(({ label }) => label),
+    judgeDuringDrawing.liveCanvases?.map(({ label }) => label),
+  );
+  assert.ok(frozenJudgeView.liveCanvases?.every(({ locked }) => locked));
+  assert.deepEqual(frozenJudgeView.liveCanvases?.[0]?.canvas, { actions: [], rev: 0, resets: 0 });
+  assert.equal(frozenJudgeView.liveCanvases?.[1]?.canvas.actions.length, 1);
+  assert.deepEqual(frozenJudgeView.liveCanvases?.[2]?.canvas, { actions: [], rev: 0, resets: 0 });
+  assert.equal(frozenJudgeView.match?.artistIds.length, 3);
+  for (const artist of [firstArtist, secondArtist, thirdArtist]) {
+    assert.equal(JSON.stringify(frozenJudgeView).includes(artist.playerId), false);
+  }
+  assert.equal(fixture.view(thirdArtist).myCanvas?.locked, true);
+  expectRoomError(
+    () => fixture.machine.sendDrawOps(thirdArtist, [{ type: "clear", id: "after-transition" }]),
+    "WRONG_PHASE",
+  );
+  expectRoomError(() => fixture.machine.submitCanvas(thirdArtist), "WRONG_PHASE");
+
+  fixture.runHistoricalTimer(drawingTimerId);
+  fixture.runHistoricalTimer(drawingTimerId);
+  fixture.machine.tick();
+  assert.equal(fixture.view().phase, "JUDGING");
+  assert.equal(fixture.transitions.length, transitionCount + 1);
+  assert.deepEqual(fixture.view().liveCanvases, frozenJudgeView.liveCanvases);
+});
+
 test("timers recheck the injected server clock if delivered early", () => {
   const fixture = createFixture();
   fixture.start();
