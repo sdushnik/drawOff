@@ -361,16 +361,61 @@ test("a host leaving revokes their session and promotes the next player", () => 
   const service = createDeterministicService();
   const host = service.createRoom("Host");
   const guest = service.joinRoom(host.roomCode, "Guest");
+  service.setConnected(guest, true);
 
   service.leaveRoom(host);
 
   const room = service.getRoom(host.roomCode);
   assert.equal(room.hostId, guest.playerId);
   assert.deepEqual(room.players, [
-    { id: guest.playerId, name: "Guest", isHost: true, connected: false },
+    { id: guest.playerId, name: "Guest", isHost: true, connected: true },
   ]);
   expectRoomError(() => service.resumeSession(host), "UNAUTHORIZED");
   assert.deepEqual(service.resumeSession(guest), guest);
+});
+
+test("host transfer selects the first connected player and cleans up without one", () => {
+  const service = createDeterministicService();
+  const host = service.createRoom("Host");
+  const disconnectedGuest = service.joinRoom(host.roomCode, "Disconnected");
+  const connectedGuest = service.joinRoom(host.roomCode, "Connected");
+  service.setConnected(connectedGuest, true);
+
+  service.leaveRoom(host);
+  const room = service.getRoom(host.roomCode);
+  assert.equal(room.hostId, connectedGuest.playerId);
+  assert.deepEqual(
+    room.players.map(({ id, isHost }) => ({ id, isHost })),
+    [
+      { id: disconnectedGuest.playerId, isHost: false },
+      { id: connectedGuest.playerId, isHost: true },
+    ],
+  );
+  expectRoomError(() => service.setCycles(host, 2), "UNAUTHORIZED");
+
+  const emptyable = createDeterministicService();
+  const loneHost = emptyable.createRoom("Host");
+  emptyable.joinRoom(loneHost.roomCode, "Offline guest");
+  emptyable.leaveRoom(loneHost);
+  expectRoomError(() => emptyable.getRoom(loneHost.roomCode), "ROOM_NOT_FOUND");
+});
+
+test("a disconnected match host transfers ownership without changing the schedule", () => {
+  const service = createDeterministicService();
+  const host = service.createRoom("Host");
+  const guest = service.joinRoom(host.roomCode, "Guest");
+  const third = service.joinRoom(host.roomCode, "Third");
+  for (const session of [host, guest, third]) service.setConnected(session, true);
+  service.startMatch(host);
+  const originalSchedule = service.getRoom(host.roomCode).matchSchedule;
+
+  service.setConnected(host, false);
+  assert.equal(service.reassignDisconnectedHost(host.roomCode), true);
+  const room = service.getRoom(host.roomCode);
+  assert.equal(room.hostId, guest.playerId);
+  assert.deepEqual(room.matchSchedule, originalSchedule);
+  assert.equal(service.reassignDisconnectedHost(host.roomCode), false);
+  expectRoomError(() => service.resetMatchForRematch(host), "FORBIDDEN");
 });
 
 test("only the authenticated host can kick another player in the lobby", () => {

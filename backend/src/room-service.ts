@@ -324,6 +324,18 @@ export class RoomService {
     player.connected = connected;
   }
 
+  reassignDisconnectedHost(codeOrLink: string): boolean {
+    const code = normalizeRoomCode(codeOrLink);
+    const room = this.findRoom(code, this.readClock());
+    const host = room.players.find((player) => player.id === room.hostId);
+    if (host?.connected !== false) return false;
+
+    const nextHost = room.players.find((player) => player.connected);
+    if (!nextHost) return false;
+    this.assignHost(room, nextHost.id);
+    return true;
+  }
+
   setCycles(session: Session, cycles: Cycles): void {
     const { room, player } = this.authenticate(session);
     if (player.id !== room.hostId) {
@@ -468,12 +480,21 @@ export class RoomService {
       return;
     }
     if (room.hostId === playerId) {
-      room.hostId = room.players[0]!.id;
-      room.players = room.players.map((player) => ({
-        ...player,
-        isHost: player.id === room.hostId,
-      }));
+      const nextHost = room.players.find((player) => player.connected);
+      if (!nextHost) {
+        this.rooms.delete(room.code);
+        return;
+      }
+      this.assignHost(room, nextHost.id);
     }
+  }
+
+  private assignHost(room: RoomRecord, playerId: string): void {
+    room.hostId = playerId;
+    room.players = room.players.map((player) => ({
+      ...player,
+      isHost: player.id === playerId,
+    }));
   }
 
   private findRoom(code: string, now: number): RoomRecord {

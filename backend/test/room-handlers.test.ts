@@ -612,6 +612,65 @@ test("leave and kick requests require valid sessions and revoke the removed play
   }
 });
 
+test("a lobby host leave promotes the first connected guest and rejects stale host controls", async () => {
+  const service = new RoomService();
+  const { app, io } = createServer({ logger: false, roomService: service });
+  const address = await app.listen({ host: "127.0.0.1", port: 0 });
+  const hostSocket = await connect(address);
+  const firstGuestSocket = await connect(address);
+  const secondGuestSocket = await connect(address);
+
+  try {
+    const created = await request(hostSocket, "room:create", { name: "Host" });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+    const host = created.response.session;
+    const firstJoined = await request(firstGuestSocket, "room:join", {
+      code: host.roomCode,
+      name: "First Guest",
+    });
+    const secondJoined = await request(secondGuestSocket, "room:join", {
+      code: host.roomCode,
+      name: "Second Guest",
+    });
+    assert.equal(firstJoined.ok, true);
+    assert.equal(secondJoined.ok, true);
+    if (!firstJoined.ok || !secondJoined.ok) return;
+    const firstGuest = firstJoined.response.session;
+
+    const promotedView = waitForRoster(
+      firstGuestSocket,
+      (view) => view.hostId === firstGuest.playerId && view.me.isHost,
+    );
+    assert.deepEqual(await request(hostSocket, "room:leave", { session: host }), {
+      ok: true,
+      response: {},
+    });
+    const promoted = await promotedView;
+    assert.equal(promoted.players[0]?.id, firstGuest.playerId);
+    assert.equal(promoted.players[0]?.isHost, true);
+
+    const stale = await request(hostSocket, "match:set-cycles", {
+      session: host,
+      cycles: 2,
+    });
+    assert.equal(stale.ok, false);
+    if (!stale.ok) assert.equal(stale.error.code, "UNAUTHORIZED");
+    assert.deepEqual(
+      await request(firstGuestSocket, "match:set-cycles", {
+        session: firstGuest,
+        cycles: 2,
+      }),
+      { ok: true, response: {} },
+    );
+  } finally {
+    hostSocket.disconnect();
+    firstGuestSocket.disconnect();
+    secondGuestSocket.disconnect();
+    await new Promise<void>((resolve) => io.close(() => resolve()));
+  }
+});
+
 test("raw tokens are only returned to the requester and absent from state, errors, and logs", async () => {
   let logOutput = "";
   const logStream = new Writable({

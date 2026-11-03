@@ -347,7 +347,7 @@ function registerRoomHandlers(
         acknowledge,
         ({ session }) => {
           assertAttached(socket, session);
-          roomService.leaveRoom(session);
+          matchStateMachine.playerLeft(session);
           detach(socket, false);
           publishRoom(session.roomCode);
           return {};

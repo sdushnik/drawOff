@@ -140,6 +140,7 @@ export class MatchStateMachine {
 
   playerDisconnected(session: Session): void {
     const authenticated = this.rooms.resumeSession(session);
+    this.rooms.reassignDisconnectedHost(authenticated.roomCode);
     const room = this.rooms.getRoom(authenticated.roomCode);
     const progress = this.progress.get(room.code);
     if (!progress || progress.pause) return;
@@ -166,8 +167,44 @@ export class MatchStateMachine {
     this.onTransition(room.code);
   }
 
+  playerLeft(session: Session): void {
+    const authenticated = this.rooms.resumeSession(session);
+    const room = this.rooms.getRoom(authenticated.roomCode);
+    const progress = this.progress.get(room.code);
+    const playerName = room.players.find(({ id }) => id === authenticated.playerId)?.name;
+    const incompleteMatch = progress !== undefined && progress.phase !== "FINAL_RESULT";
+
+    this.rooms.leaveRoom(authenticated);
+    if (!incompleteMatch) {
+      try {
+        this.rooms.getRoom(room.code);
+        this.onTransition(room.code);
+      } catch (error) {
+        if (!(error instanceof RoomServiceError) || error.code !== "ROOM_NOT_FOUND") throw error;
+        this.clearProgress(room.code);
+      }
+      return;
+    }
+
+    this.clearProgress(room.code);
+    try {
+      const remainingRoom = this.rooms.getRoom(room.code);
+      this.rooms.cancelActiveMatch(
+        room.code,
+        this.interruptionNotice(
+          remainingRoom,
+          `The match was canceled because ${playerName ?? "a required player"} left.`,
+        ),
+      );
+      this.onTransition(room.code);
+    } catch (error) {
+      if (!(error instanceof RoomServiceError) || error.code !== "ROOM_NOT_FOUND") throw error;
+    }
+  }
+
   playerReconnected(session: Session): void {
     const authenticated = this.rooms.resumeSession(session);
+    this.rooms.reassignDisconnectedHost(authenticated.roomCode);
     const room = this.rooms.getRoom(authenticated.roomCode);
     const progress = this.progress.get(room.code);
     if (!progress?.pause) return;
@@ -775,11 +812,22 @@ export class MatchStateMachine {
     if (progress.timer !== null) this.clearTimer(progress.timer);
     progress.timer = null;
     this.progress.delete(roomCode);
+    const room = this.rooms.getRoom(roomCode);
     this.rooms.cancelActiveMatch(
       roomCode,
-      "The match was canceled because a required player did not reconnect in time.",
+      this.interruptionNotice(
+        room,
+        "The match was canceled because a required player did not reconnect in time.",
+      ),
     );
     this.onTransition(roomCode);
+  }
+
+  private interruptionNotice(room: RoomSnapshot, reason: string): string {
+    const connectedCount = room.players.filter(({ connected }) => connected).length;
+    return connectedCount >= 3
+      ? `${reason} No winner was declared. The room is ready to start a new match.`
+      : `${reason} No winner was declared. At least 3 connected players are needed to start a new match.`;
   }
 
   private clearProgress(roomCode: string): void {

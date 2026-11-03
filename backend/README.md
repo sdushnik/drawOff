@@ -48,7 +48,12 @@ contain only public player summaries. Resume, leave, and kick authenticate the
 provided token against both the room and player; `playerId` alone is never
 authorization. Leaving or being kicked removes the stored hash and revokes the
 session. Only the authenticated host can kick, and kicking is restricted to
-the lobby. If the host leaves, the first remaining player becomes host.
+the lobby. If the host leaves, the first remaining connected player in
+room/join order becomes host. If no connected player remains after that
+permanent departure, the room is removed. During a match, a host who loses
+their final socket transfers host controls to the first connected player
+without changing the frozen roster or Judge schedule; reconnecting does not
+reclaim those controls.
 
 The shared Socket.IO contract uses `session:resume` with the same `Session`
 shape returned by `room:create` and `room:join`; raw tokens must not be put in
@@ -131,8 +136,11 @@ after every required participant returns, the phase continues with exactly its
 saved remaining time. Submitted Artists are no longer required during drawing,
 and only the Judge is required during judging. If a required participant misses
 the reconnect deadline, the incomplete match is discarded without points or a
-winner and the private room returns to a recoverable lobby. Host reassignment
-and broader interruption messaging remain owned by #21.
+winner and the private room returns to a recoverable lobby. The lobby notice
+states whether at least three connected players are available to start again.
+An explicit permanent leave also cancels an incomplete match immediately. Host
+reassignment never rewrites the frozen roster or Judge rotation, and requests
+from a former host are rejected after ownership moves.
 
 The Judge receives three distinct, curated prompt suggestions when
 `WORD_SELECTION` begins. Artists receive neither the suggestions nor a prompt
