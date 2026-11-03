@@ -5,6 +5,12 @@ const workspaces = ["frontend", "backend"];
 const children = workspaces.map((workspace) =>
   spawn(npm, ["run", "dev", "--workspace", workspace], {
     stdio: "inherit",
+    env: {
+      ...process.env,
+      ...(workspace === "frontend" && process.env["VITE_GAME_SERVER_URL"] === undefined
+        ? { VITE_GAME_SERVER_URL: `http://localhost:${process.env["PORT"] ?? "3000"}` }
+        : {}),
+    },
   }),
 );
 
