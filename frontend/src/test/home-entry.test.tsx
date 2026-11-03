@@ -50,6 +50,26 @@ afterEach(() => {
 });
 
 describe("home room entry", () => {
+  it("contains guest-entry content at 320px and stacks controls before the small breakpoint", () => {
+    renderHome();
+
+    const main = document.querySelector("main");
+    const layout = main?.firstElementChild;
+    const sections = main?.querySelectorAll("section");
+    const form = screen.getByRole("button", { name: /create a room/i }).closest("form");
+    const joinInput = screen.getByLabelText("Room code or invite link");
+    const joinControls = joinInput.parentElement;
+
+    expect(main).not.toHaveClass("overflow-hidden");
+    expect(layout).toHaveClass("w-full", "min-w-0", "px-4", "sm:px-5");
+    expect(sections).toHaveLength(2);
+    for (const section of sections ?? []) expect(section).toHaveClass("min-w-0");
+    expect(form).toHaveClass("w-full", "min-w-0", "max-w-md");
+    expect(joinControls).toHaveClass("min-w-0", "flex-col", "sm:flex-row");
+    expect(joinInput).toHaveClass("min-w-0");
+    expect(screen.getByRole("button", { name: /^join$/i })).toHaveClass("w-full", "sm:w-auto");
+  });
+
   it("labels both inputs and rejects invalid names and room codes before service calls", () => {
     const service = renderHome();
 

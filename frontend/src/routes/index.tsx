@@ -56,21 +56,21 @@ export function Home() {
   };
 
   return (
-    <main className="min-h-screen overflow-hidden">
-      <div className="mx-auto grid max-w-6xl items-center gap-10 px-5 py-10 lg:grid-cols-2 lg:py-16">
-        <section>
+    <main className="min-h-screen">
+      <div className="mx-auto grid w-full min-w-0 max-w-6xl items-center gap-10 px-4 py-10 sm:px-5 lg:grid-cols-2 lg:py-16">
+        <section className="min-w-0">
           <span className="sticker-sm inline-flex items-center gap-1.5 bg-secondary px-3 py-1 text-sm font-bold">
             <Sparkles className="size-4" /> A party game for 3+ friends
           </span>
           <h1 className="mt-5 text-6xl font-extrabold leading-[0.95] sm:text-7xl">
             Draw<span className="text-primary">Off</span>
           </h1>
-          <p className="mt-4 max-w-md text-xl font-medium">
+          <p className="mt-4 max-w-md break-words text-xl font-medium">
             One judge picks the word. Everyone else draws it in 60 seconds. The judge watches live — then scores every
             drawing from 0 to 100.
           </p>
 
-          <form onSubmit={(e) => go("create", e)} className="sticker mt-8 flex max-w-md flex-col gap-4 p-5">
+          <form onSubmit={(e) => go("create", e)} className="sticker mt-8 flex w-full min-w-0 max-w-md flex-col gap-4 p-5">
             <div className="flex flex-col gap-1.5">
               <label htmlFor="name" className="font-display font-bold">
                 Your name
@@ -83,9 +83,9 @@ export function Home() {
             <div className="flex items-center gap-3 text-sm font-semibold text-muted-foreground">
               <span className="h-0.5 flex-1 bg-ink/15" /> or join friends <span className="h-0.5 flex-1 bg-ink/15" />
             </div>
-            <div className="flex gap-2">
+            <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
               <Input aria-label="Room code or invite link" value={code} placeholder="Room code or link" className="min-w-0 uppercase tracking-widest placeholder:normal-case placeholder:tracking-normal" onChange={(e) => setCode(e.target.value)} />
-              <Button type="button" variant="teal" size="lg" className="shrink-0" disabled={busy !== null} onClick={() => go("join")}>
+              <Button type="button" variant="teal" size="lg" className="w-full shrink-0 sm:w-auto" disabled={busy !== null} onClick={() => go("join")}>
                 Join
               </Button>
             </div>
@@ -97,7 +97,7 @@ export function Home() {
           </form>
         </section>
 
-        <section className="relative">
+        <section className="relative min-w-0">
           <img src={stickers} alt="Pencil, paint bucket, gavel, crown and brush stickers" width={1024} height={1024} className="mx-auto w-full max-w-lg animate-float drop-shadow-[6px_6px_0_var(--ink)]" />
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
             {[

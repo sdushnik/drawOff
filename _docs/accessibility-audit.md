@@ -17,6 +17,8 @@ This record covers Issue #23. It verifies the existing visual direction rather t
 
 No gameplay view introduces a fixed minimum page width. Horizontal scrolling is intentional only for the Focus View drawing switcher, where each anonymous thumbnail remains a reachable button. At 200% desktop zoom, responsive breakpoints fall back to the same tested stacked layouts, with phase, prompt, timer, rating, and submission controls still in document order.
 
+The Home regression was rechecked in headless Chrome with DevTools device metrics set to real 320×900 and 375×900 CSS viewports. At 320px, document `clientWidth` and `scrollWidth` were both 305px after the vertical scrollbar; at 375px, both were 360px. The widest rendered descendant remained within the document at both sizes. A bare macOS Chrome `--window-size` below 500px is not sufficient for this check because Chrome retains a 500px layout viewport and crops the screenshot; verification must confirm `window.innerWidth` or use device emulation.
+
 ## Keyboard, pointer, and assistive technology
 
 - Buttons, links, inputs, sliders, and the anonymous drawing cards use native keyboard semantics. Shared controls have their component focus rings, and `styles.css` supplies a 3px visible fallback for every remaining native interactive control.
@@ -43,6 +45,7 @@ The primary focus color is at least 3:1 against paper, and interactive controls 
 ## Reproducible checks
 
 - Focused audit: `npm test --workspace frontend -- --run src/test/accessibility-audit.test.ts src/components/game/ArtistBoard.test.tsx src/components/game/JudgeLiveView.test.tsx src/components/game/PhaseScreens.test.tsx`
+- Narrow Home regression: `npm test --workspace frontend -- --run src/test/home-entry.test.tsx src/test/accessibility-audit.test.ts`
 - Full workspace: `npm test`
 - Production build: `npm run build`
 
