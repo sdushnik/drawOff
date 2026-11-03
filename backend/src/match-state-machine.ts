@@ -26,6 +26,7 @@ export const MATCH_PHASE_DURATIONS_MS = {
   JUDGE_MINIMUM: 45_000,
   JUDGE_PER_ARTIST: 15_000,
 } as const;
+export const RECONNECT_WINDOW_MS = 30_000;
 
 type MatchPhase =
   | "ROLE_REVEAL"
@@ -48,6 +49,11 @@ interface MatchProgress {
   scores: Record<string, number>;
   judgeRatings: Record<string, number> | null;
   roundResult: RoundResult | null;
+  pause: {
+    playerId: string;
+    until: number;
+    remainingMs: number | null;
+  } | null;
   generation: number;
   timer: TimerHandle | null;
 }
@@ -111,6 +117,7 @@ export class MatchStateMachine {
       scores: Object.fromEntries(room.matchSchedule.order.map((playerId) => [playerId, 0])),
       judgeRatings: null,
       roundResult: null,
+      pause: null,
       generation: 0,
       timer: null,
     };
@@ -131,8 +138,68 @@ export class MatchStateMachine {
     this.onTransition(room.code);
   }
 
+  playerDisconnected(session: Session): void {
+    const authenticated = this.rooms.resumeSession(session);
+    const room = this.rooms.getRoom(authenticated.roomCode);
+    const progress = this.progress.get(room.code);
+    if (!progress || progress.pause) return;
+
+    const missingPlayerId = this.requiredPlayerIds(room, progress)
+      .find((playerId) => !room.players.find((player) => player.id === playerId)?.connected);
+    if (!missingPlayerId) return;
+
+    const now = this.readClock();
+    const until = now + RECONNECT_WINDOW_MS;
+    if (!Number.isFinite(until)) {
+      throw new RoomServiceError("REQUEST_FAILED", "The reconnect deadline could not be set.");
+    }
+    if (progress.timer !== null) this.clearTimer(progress.timer);
+    progress.timer = null;
+    progress.pause = {
+      playerId: missingPlayerId,
+      until,
+      remainingMs:
+        progress.deadline === null ? null : Math.max(0, progress.deadline - now),
+    };
+    progress.generation += 1;
+    this.schedulePauseTimer(room.code, progress);
+    this.onTransition(room.code);
+  }
+
+  playerReconnected(session: Session): void {
+    const authenticated = this.rooms.resumeSession(session);
+    const room = this.rooms.getRoom(authenticated.roomCode);
+    const progress = this.progress.get(room.code);
+    if (!progress?.pause) return;
+
+    const nextMissingPlayerId = this.requiredPlayerIds(room, progress)
+      .find((playerId) => !room.players.find((player) => player.id === playerId)?.connected);
+    if (nextMissingPlayerId) {
+      if (progress.pause.playerId !== nextMissingPlayerId) {
+        progress.pause.playerId = nextMissingPlayerId;
+        this.onTransition(room.code);
+      }
+      return;
+    }
+
+    const now = this.readClock();
+    const remainingMs = progress.pause.remainingMs;
+    if (progress.timer !== null) this.clearTimer(progress.timer);
+    progress.timer = null;
+    progress.pause = null;
+    progress.generation += 1;
+    progress.phaseStartedAt = now;
+    progress.deadline = remainingMs === null ? null : now + remainingMs;
+    if (progress.deadline !== null && !Number.isFinite(progress.deadline)) {
+      throw new RoomServiceError("REQUEST_FAILED", "The match deadline could not be restored.");
+    }
+    if (progress.deadline !== null) this.scheduleTimer(room.code, progress);
+    this.onTransition(room.code);
+  }
+
   selectPrompt(session: Session, rawPrompt: unknown): void {
     const { room, player, progress } = this.requireMatchMember(session);
+    this.requireNotPaused(progress);
     this.requirePhase(progress, "WORD_SELECTION");
     this.requireJudge(room, player.id, progress.roundIndex);
     this.requireBeforeDeadline(progress);
@@ -142,6 +209,7 @@ export class MatchStateMachine {
 
   submitRatings(session: Session, rawRatings: unknown): void {
     const { room, player, progress } = this.requireMatchMember(session);
+    this.requireNotPaused(progress);
     this.requireJudge(room, player.id, progress.roundIndex);
 
     const assignment = getMatchRoundAssignment(room.matchSchedule!, progress.roundIndex);
@@ -371,6 +439,13 @@ export class MatchStateMachine {
       serverNow,
       phase: progress.phase,
       deadline: progress.deadline,
+      pause: progress.pause
+        ? {
+            playerName:
+              room.players.find(({ id }) => id === progress.pause!.playerId)?.name ?? "A player",
+            until: progress.pause.until,
+          }
+        : null,
       matchStarted: true,
       role,
       prompt:
@@ -393,7 +468,7 @@ export class MatchStateMachine {
                     locked:
                       drawing.locked ||
                       progress.phase !== "DRAWING" ||
-                      (progress.deadline !== null && serverNow >= progress.deadline),
+                      (!progress.pause && progress.deadline !== null && serverNow >= progress.deadline),
                   }
                 : null;
             })()
@@ -409,7 +484,7 @@ export class MatchStateMachine {
                 locked:
                   drawing.locked ||
                   progress.phase !== "DRAWING" ||
-                  (progress.deadline !== null && serverNow >= progress.deadline),
+                  (!progress.pause && progress.deadline !== null && serverNow >= progress.deadline),
               };
             })
             : null,
@@ -446,7 +521,9 @@ export class MatchStateMachine {
   tick(): void {
     const now = this.readClock();
     for (const [roomCode, progress] of this.progress) {
-      if (progress.deadline !== null && now >= progress.deadline) {
+      if (progress.pause && now >= progress.pause.until) {
+        this.cancelInterruptedMatch(roomCode, progress);
+      } else if (!progress.pause && progress.deadline !== null && now >= progress.deadline) {
         this.processDeadline(roomCode, progress.generation, now);
       }
     }
@@ -499,6 +576,7 @@ export class MatchStateMachine {
     progress: MatchProgress;
   } {
     const { room, player, progress } = this.requireMatchMember(session);
+    this.requireNotPaused(progress);
     this.requirePhase(progress, "DRAWING");
     const assignment = getMatchRoundAssignment(room.matchSchedule!, progress.roundIndex);
     if (!assignment.artistIds.includes(player.id)) {
@@ -517,6 +595,34 @@ export class MatchStateMachine {
       throw new RoomServiceError("DEADLINE_PASSED", "The phase deadline has passed.");
     }
     return now;
+  }
+
+  private requireNotPaused(progress: MatchProgress): void {
+    if (progress.pause) {
+      throw new RoomServiceError("PAUSED", "The game is paused while a player reconnects.");
+    }
+  }
+
+  private requiredPlayerIds(room: RoomSnapshot, progress: MatchProgress): string[] {
+    if (!room.matchSchedule) return [];
+    const assignment = getMatchRoundAssignment(room.matchSchedule, progress.roundIndex);
+    switch (progress.phase) {
+      case "ROLE_REVEAL":
+      case "WORD_SELECTION":
+        return [assignment.judgeId, ...assignment.artistIds];
+      case "DRAWING":
+        return [
+          assignment.judgeId,
+          ...assignment.artistIds.filter(
+            (artistId) => !progress.canvases.get(artistId)?.locked,
+          ),
+        ];
+      case "JUDGING":
+        return [assignment.judgeId];
+      case "ROUND_RESULT":
+      case "FINAL_RESULT":
+        return [];
+    }
   }
 
   private processDeadline(roomCode: string, generation: number, now: number): void {
@@ -644,6 +750,36 @@ export class MatchStateMachine {
     }, delay);
     progress.timer = timer;
     if (typeof timer === "object" && timer !== null) timer.unref();
+  }
+
+  private schedulePauseTimer(roomCode: string, progress: MatchProgress): void {
+    if (!progress.pause) return;
+    const generation = progress.generation;
+    const delay = Math.max(0, progress.pause.until - this.readClock());
+    const timer = this.setTimer(() => {
+      const current = this.progress.get(roomCode);
+      if (current?.generation !== generation || !current.pause) return;
+      current.timer = null;
+      const now = this.readClock();
+      if (now < current.pause.until) {
+        this.schedulePauseTimer(roomCode, current);
+        return;
+      }
+      this.cancelInterruptedMatch(roomCode, current);
+    }, delay);
+    progress.timer = timer;
+    if (typeof timer === "object" && timer !== null) timer.unref();
+  }
+
+  private cancelInterruptedMatch(roomCode: string, progress: MatchProgress): void {
+    if (progress.timer !== null) this.clearTimer(progress.timer);
+    progress.timer = null;
+    this.progress.delete(roomCode);
+    this.rooms.cancelActiveMatch(
+      roomCode,
+      "The match was canceled because a required player did not reconnect in time.",
+    );
+    this.onTransition(roomCode);
   }
 
   private clearProgress(roomCode: string): void {

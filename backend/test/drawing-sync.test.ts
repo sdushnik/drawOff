@@ -304,9 +304,39 @@ test("live drawing ops are private, ordered, idempotent, and recover from a miss
     assert.equal(duplicateSubmit.ok, false);
 
     judgeSocket.disconnect();
+    const pausedArtistView = await waitForView(
+      otherArtistSocket,
+      (view) => view.phase === "DRAWING" && view.pause !== null,
+    );
+    assert.equal(pausedArtistView.pause?.playerName, "Judge Name");
+    const rejectedWhilePaused = await request(otherArtistSocket, "drawing:ops", {
+      session: otherArtist,
+      ops: [{ type: "clear", id: "second-artist-clear" }],
+    });
+    assert.equal(rejectedWhilePaused.ok, false);
+    if (!rejectedWhilePaused.ok) {
+      assert.equal(rejectedWhilePaused.error.code, "PAUSED");
+    }
+    const reconnectingJudge = await connect(address);
+    sockets.push(reconnectingJudge);
+    const recovered = waitForView(
+      reconnectingJudge,
+      (view) =>
+        view.role === "judge" &&
+        view.pause === null &&
+        (view.liveCanvases?.some((canvas) => canvas.sequence === 5) ?? false) &&
+        (view.liveCanvases?.some((canvas) => canvas.sequence === 0) ?? false),
+    );
+    assert.equal((await request(reconnectingJudge, "session:resume", { session: judge })).ok, true);
+    const recoveredJudge = await recovered;
+    assert.equal(recoveredJudge.liveCanvases?.[0]?.canvas.rev, 4);
     const artistTwoSnapshot = waitForView(
       otherArtistSocket,
       (view) => view.phase === "DRAWING" && view.myCanvas?.canvas.rev === 1,
+    );
+    const judgeSecondArtistSnapshot = waitForView(
+      reconnectingJudge,
+      (view) => view.liveCanvases?.some((canvas) => canvas.sequence === 1) ?? false,
     );
     const secondArtistCommit = await request(otherArtistSocket, "drawing:ops", {
       session: otherArtist,
@@ -314,20 +344,9 @@ test("live drawing ops are private, ordered, idempotent, and recover from a miss
     });
     assert.equal(secondArtistCommit.ok, true);
     await artistTwoSnapshot;
-    const reconnectingJudge = await connect(address);
-    sockets.push(reconnectingJudge);
-    const recovered = waitForView(
-      reconnectingJudge,
-      (view) =>
-        view.role === "judge" &&
-        (view.liveCanvases?.some((canvas) => canvas.sequence === 5) ?? false) &&
-        (view.liveCanvases?.some((canvas) => canvas.sequence === 1) ?? false),
-    );
-    assert.equal((await request(reconnectingJudge, "session:resume", { session: judge })).ok, true);
-    const judgeBeforeDeadline = await recovered;
-    assert.equal(judgeBeforeDeadline.liveCanvases?.[0]?.canvas.rev, 4);
+    const judgeBeforeDeadline = await judgeSecondArtistSnapshot;
 
-    const deadline = judgeView.deadline!;
+    const deadline = judgeBeforeDeadline.deadline!;
     clock.advanceTo(deadline);
     const atDeadline = await request(otherArtistSocket, "drawing:ops", {
       session: otherArtist,

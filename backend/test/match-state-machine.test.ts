@@ -4,6 +4,7 @@ import type { Phase, PlayerView, Session } from "@drawoff/contracts";
 import {
   MATCH_PHASE_DURATIONS_MS,
   MatchStateMachine,
+  RECONNECT_WINDOW_MS,
 } from "../src/match-state-machine.js";
 import { RoomService, RoomServiceError } from "../src/room-service.js";
 
@@ -136,6 +137,136 @@ function transitionFromRoundResult(
   fixture.machine.tick();
   return fixture.view().phase;
 }
+
+function disconnect(
+  fixture: ReturnType<typeof createFixture>,
+  session: Session,
+): void {
+  fixture.rooms.setConnected(session, false);
+  fixture.machine.playerDisconnected(session);
+}
+
+function reconnect(
+  fixture: ReturnType<typeof createFixture>,
+  session: Session,
+): void {
+  fixture.rooms.setConnected(session, true);
+  fixture.machine.playerReconnected(session);
+}
+
+test("required disconnects pause and resume with the exact remaining server time", () => {
+  const fixture = createFixture();
+  advanceToWordSelection(fixture);
+  const originalDeadline = fixture.view().deadline!;
+  fixture.setTime(fixture.now + 10_000);
+
+  disconnect(fixture, fixture.host);
+  const paused = fixture.view(fixture.sessions[1]!);
+  assert.deepEqual(paused.pause, {
+    playerName: "Player 0",
+    until: fixture.now + RECONNECT_WINDOW_MS,
+  });
+  assert.equal(paused.phase, "WORD_SELECTION");
+  assert.equal(paused.deadline, originalDeadline);
+  expectRoomError(
+    () => fixture.machine.selectPrompt(fixture.host, "lighthouse"),
+    "PAUSED",
+  );
+
+  fixture.setTime(fixture.now + 20_000);
+  reconnect(fixture, fixture.host);
+  const resumed = fixture.view();
+  assert.equal(resumed.pause, null);
+  assert.equal(resumed.phase, "WORD_SELECTION");
+  assert.equal(resumed.deadline! - fixture.now, 20_000);
+
+  const restoredDeadline = resumed.deadline;
+  fixture.machine.playerReconnected(fixture.host);
+  assert.equal(fixture.view().deadline, restoredDeadline);
+});
+
+test("drawing recovery preserves authoritative snapshots, revisions, roles, and locks", () => {
+  const fixture = createFixture();
+  advanceToWordSelection(fixture);
+  fixture.machine.selectPrompt(fixture.host, "lighthouse");
+  const artist = fixture.sessions[1]!;
+  fixture.machine.sendDrawOps(artist, [
+    { type: "clear", id: "saved-clear" },
+    { type: "fill", id: "saved-fill", x: 10, y: 10, color: "#0090ff" },
+  ]);
+  const before = fixture.view(artist);
+  assert.equal(before.myCanvas?.canvas.rev, 2);
+
+  fixture.setTime(fixture.now + 15_000);
+  disconnect(fixture, artist);
+  const pausedArtist = fixture.view(artist);
+  assert.equal(pausedArtist.role, "artist");
+  assert.equal(pausedArtist.prompt, "lighthouse");
+  assert.deepEqual(pausedArtist.myCanvas, before.myCanvas);
+  expectRoomError(
+    () => fixture.machine.sendDrawOps(artist, [{ type: "clear", id: "while-paused" }]),
+    "PAUSED",
+  );
+
+  fixture.setTime(fixture.now + 5_000);
+  reconnect(fixture, artist);
+  const recovered = fixture.view(artist);
+  assert.equal(recovered.pause, null);
+  assert.equal(recovered.role, "artist");
+  assert.equal(recovered.deadline! - fixture.now, 45_000);
+  assert.deepEqual(recovered.myCanvas, before.myCanvas);
+
+  fixture.machine.submitCanvas(artist);
+  disconnect(fixture, artist);
+  assert.equal(fixture.view().pause, null);
+  assert.equal(fixture.view(artist).myCanvas?.locked, true);
+});
+
+test("only participants whose input is still required pause active phases", () => {
+  const fixture = createFixture();
+  advanceToJudging(fixture);
+  const artist = fixture.sessions[1]!;
+
+  disconnect(fixture, artist);
+  assert.equal(fixture.view().pause, null);
+
+  disconnect(fixture, fixture.host);
+  assert.equal(fixture.view(artist).pause?.playerName, "Player 0");
+});
+
+test("invalid room-scoped tokens cannot resume a paused identity", () => {
+  const fixture = createFixture();
+  advanceToWordSelection(fixture);
+  disconnect(fixture, fixture.host);
+  const forged = { ...fixture.host, token: `${fixture.host.token}-invalid` };
+
+  expectRoomError(() => fixture.machine.playerReconnected(forged), "UNAUTHORIZED");
+  assert.notEqual(fixture.view().pause, null);
+});
+
+test("reconnect timeout discards the incomplete match and returns a clean lobby", () => {
+  const fixture = createFixture();
+  advanceToWordSelection(fixture);
+  fixture.machine.selectPrompt(fixture.host, "lighthouse");
+  fixture.machine.sendDrawOps(fixture.sessions[1]!, [
+    { type: "clear", id: "incomplete-round" },
+  ]);
+  disconnect(fixture, fixture.sessions[1]!);
+  const reconnectDeadline = fixture.view().pause?.until;
+  assert.ok(reconnectDeadline !== undefined);
+
+  fixture.setTime(reconnectDeadline);
+  fixture.machine.tick();
+  const recoveredLobby = fixture.view();
+  assert.equal(recoveredLobby.phase, "LOBBY");
+  assert.equal(recoveredLobby.matchStarted, false);
+  assert.equal(recoveredLobby.match, null);
+  assert.equal(recoveredLobby.finalResult, null);
+  assert.equal(recoveredLobby.roundResult, null);
+  assert.equal(recoveredLobby.myCanvas, null);
+  assert.match(recoveredLobby.notice ?? "", /canceled.*did not reconnect/i);
+  assert.equal(fixture.rooms.getRoom(fixture.host.roomCode).matchSchedule, null);
+});
 
 test("server clock drives the normal phase sequence through the final result", () => {
   const fixture = createFixture();

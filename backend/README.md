@@ -120,9 +120,19 @@ clock and timer functions are injectable for deterministic tests.
 
 Prompt selection and its timeout fallback are owned by #11; canvas freeze and
 early submission are implemented by #16. The state machine does not implement
-judging timeout behavior. It also does not implement disconnect pause or interruption behavior:
-those must be added via the dedicated policies in #20/#21 and cannot bypass
-ordinary authorization, phase, or deadline checks.
+judging timeout behavior.
+
+When a required match participant loses their final active socket, the server
+pauses the current phase for at most 30 seconds. The server preserves the
+phase's remaining time and authoritative canvas snapshots/revisions, publishes
+the reconnect deadline to the room, and rejects gameplay mutations while
+paused. A room-scoped session-token resume restores the same identity and view;
+after every required participant returns, the phase continues with exactly its
+saved remaining time. Submitted Artists are no longer required during drawing,
+and only the Judge is required during judging. If a required participant misses
+the reconnect deadline, the incomplete match is discarded without points or a
+winner and the private room returns to a recoverable lobby. Host reassignment
+and broader interruption messaging remain owned by #21.
 
 The Judge receives three distinct, curated prompt suggestions when
 `WORD_SELECTION` begins. Artists receive neither the suggestions nor a prompt

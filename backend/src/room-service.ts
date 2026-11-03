@@ -80,6 +80,7 @@ interface RoomRecord {
   matchInProgress: boolean;
   cycles: Cycles;
   matchSchedule: MatchSchedule | null;
+  notice: string | null;
   expiresAt: number;
 }
 
@@ -181,6 +182,7 @@ export class RoomService {
       matchInProgress: false,
       cycles: 1,
       matchSchedule: null,
+      notice: null,
       expiresAt,
     });
 
@@ -359,6 +361,7 @@ export class RoomService {
       totalRounds: order.length * room.cycles,
     };
     room.matchInProgress = true;
+    room.notice = null;
   }
 
   resetMatchForRematch(session: Session): void {
@@ -371,6 +374,15 @@ export class RoomService {
     }
     room.matchInProgress = false;
     room.matchSchedule = null;
+    room.notice = null;
+  }
+
+  cancelActiveMatch(codeOrLink: string, notice: string): void {
+    const code = normalizeRoomCode(codeOrLink);
+    const room = this.findRoom(code, this.readClock());
+    room.matchInProgress = false;
+    room.matchSchedule = null;
+    room.notice = notice;
   }
 
   getLobbyView(session: Session): PlayerView {
@@ -391,7 +403,7 @@ export class RoomService {
       phase: "LOBBY",
       deadline: null,
       pause: null,
-      notice: null,
+      notice: room.notice,
       match: schedule && firstRound
         ? {
             roundIndex: 0,

@@ -219,6 +219,7 @@ function registerRoomHandlers(
       if (markDisconnected) {
         try {
           roomService.setConnected(session, false);
+          matchStateMachine.playerDisconnected(session);
           publishRoom(session.roomCode);
         } catch {
           // The room or player may already have been removed.
@@ -251,7 +252,10 @@ function registerRoomHandlers(
     sockets.add(socket.id);
     attachedSessions.set(socket.id, session);
     void socket.join(session.roomCode);
-    if (wasDisconnected) roomService.setConnected(session, true);
+    if (wasDisconnected) {
+      roomService.setConnected(session, true);
+      matchStateMachine.playerReconnected(session);
+    }
     return session;
   };
 
