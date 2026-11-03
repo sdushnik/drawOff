@@ -21,6 +21,18 @@ interface Props {
   onSubmit: () => Promise<unknown>;
 }
 
+export function mapPointerToCanvas(
+  clientX: number,
+  clientY: number,
+  rect: Pick<DOMRect, "left" | "top" | "width" | "height">,
+): [number, number] {
+  if (rect.width <= 0 || rect.height <= 0) return [0, 0];
+  return [
+    Math.min(CANVAS_WIDTH, Math.max(0, Math.round(((clientX - rect.left) / rect.width) * CANVAS_WIDTH))),
+    Math.min(CANVAS_HEIGHT, Math.max(0, Math.round(((clientY - rect.top) / rect.height) * CANVAS_HEIGHT))),
+  ];
+}
+
 /**
  * The artist's private canvas. Draws locally for zero latency and streams the
  * exact same ops (batched) to the backend, which relays them to the judge only.
@@ -33,13 +45,22 @@ export function ArtistBoard({ initial, locked, timeUp, onSend, onSubmit }: Props
   const activeStroke = useRef<string | null>(null);
   const lastPoint = useRef<[number, number] | null>(null);
   const frame = useRef<number | null>(null);
+  const sendSequence = useRef<Promise<void>>(Promise.resolve());
 
   const [tool, setTool] = useState<DrawTool>("pen");
   const [color, setColor] = useState<string>(PALETTE[0]);
   const [size, setSize] = useState<number>(BRUSH_SIZES[1]);
   const [actionCount, setActionCount] = useState(initial.actions.length);
   const [submitting, setSubmitting] = useState(false);
-  const disabled = locked || timeUp;
+  const [submitted, setSubmitted] = useState(false);
+  const disabled = locked || timeUp || submitted || submitting;
+  const blocked = useRef(disabled);
+  const externallyDisabled = useRef(locked || timeUp);
+  externallyDisabled.current = locked || timeUp;
+
+  useEffect(() => {
+    blocked.current = disabled;
+  }, [disabled]);
 
   const paint = useCallback(() => {
     if (frame.current !== null) return;
@@ -64,11 +85,19 @@ export function ArtistBoard({ initial, locked, timeUp, onSend, onSubmit }: Props
   }, [paint]);
 
   const flush = useCallback(() => {
-    if (queue.current.length === 0) return;
-    const batch = queue.current.splice(0, 60);
-    onSend(batch).catch(() => {
-      /* deadline passed or phase changed — the server is authoritative */
+    const sending = sendSequence.current.then(async () => {
+      while (queue.current.length > 0) {
+        const batch = queue.current.splice(0, 60);
+        try {
+          await onSend(batch);
+        } catch (error) {
+          queue.current.unshift(...batch);
+          throw error;
+        }
+      }
     });
+    sendSequence.current = sending.catch(() => undefined);
+    return sending;
   }, [onSend]);
 
   useEffect(() => {
@@ -80,6 +109,7 @@ export function ArtistBoard({ initial, locked, timeUp, onSend, onSubmit }: Props
   }, [flush]);
 
   const emit = (op: DrawOp) => {
+    if (blocked.current) return;
     applyOps(local.current, [op]);
     const last = queue.current[queue.current.length - 1];
     if (
@@ -95,23 +125,15 @@ export function ArtistBoard({ initial, locked, timeUp, onSend, onSubmit }: Props
     paint();
   };
 
-  const toCanvas = (e: PointerEvent<HTMLCanvasElement>): [number, number] => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    return [
-      Math.round(((e.clientX - rect.left) / rect.width) * CANVAS_WIDTH),
-      Math.round(((e.clientY - rect.top) / rect.height) * CANVAS_HEIGHT),
-    ];
-  };
-
   const onDown = (e: PointerEvent<HTMLCanvasElement>) => {
-    if (disabled) return;
+    if (blocked.current) return;
     e.preventDefault();
-    const [x, y] = toCanvas(e);
+    const [x, y] = mapPointerToCanvas(e.clientX, e.clientY, e.currentTarget.getBoundingClientRect());
     if (tool === "fill") {
       emit({ type: "fill", id: newId(), x, y, color });
       return;
     }
-    e.currentTarget.setPointerCapture(e.pointerId);
+    e.currentTarget.setPointerCapture?.(e.pointerId);
     const id = newId();
     activeStroke.current = id;
     lastPoint.current = [x, y];
@@ -120,8 +142,8 @@ export function ArtistBoard({ initial, locked, timeUp, onSend, onSubmit }: Props
 
   const onMove = (e: PointerEvent<HTMLCanvasElement>) => {
     const id = activeStroke.current;
-    if (!id || disabled) return;
-    const [x, y] = toCanvas(e);
+    if (!id || blocked.current) return;
+    const [x, y] = mapPointerToCanvas(e.clientX, e.clientY, e.currentTarget.getBoundingClientRect());
     const prev = lastPoint.current;
     if (prev && Math.abs(prev[0] - x) + Math.abs(prev[1] - y) < 2) return;
     lastPoint.current = [x, y];
@@ -138,10 +160,25 @@ export function ArtistBoard({ initial, locked, timeUp, onSend, onSubmit }: Props
   }, [disabled]);
 
   const submit = async () => {
+    if (blocked.current) return;
+    blocked.current = true;
+    setSubmitted(true);
     setSubmitting(true);
-    flush();
-    await onSubmit();
-    setSubmitting(false);
+    let accepted = true;
+    try {
+      await flush();
+      const result = await onSubmit();
+      if (result === false) {
+        accepted = false;
+        setSubmitted(false);
+      }
+    } catch {
+      accepted = false;
+      setSubmitted(false);
+    } finally {
+      setSubmitting(false);
+      blocked.current = externallyDisabled.current || accepted;
+    }
   };
 
   return (
@@ -158,7 +195,7 @@ export function ArtistBoard({ initial, locked, timeUp, onSend, onSubmit }: Props
             onPointerUp={onUp}
             onPointerCancel={onUp}
             className={cn(
-              "canvas-surface block aspect-[4/3] h-auto w-full",
+              "canvas-surface block aspect-[4/3] h-auto w-full touch-none overscroll-contain",
               disabled ? "cursor-not-allowed" : tool === "fill" ? "cursor-cell" : "cursor-crosshair",
             )}
           />
@@ -166,7 +203,7 @@ export function ArtistBoard({ initial, locked, timeUp, onSend, onSubmit }: Props
         {disabled && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <span className="sticker animate-pop inline-flex items-center gap-2 bg-secondary px-4 py-2 font-display text-lg font-bold">
-              <Lock className="size-5" /> {locked ? "Submitted!" : "Pencils down!"}
+              <Lock className="size-5" /> {locked || submitted ? "Submitted!" : "Pencils down!"}
             </span>
           </div>
         )}
@@ -244,8 +281,8 @@ export function ArtistBoard({ initial, locked, timeUp, onSend, onSubmit }: Props
           </Button>
         </div>
 
-        <Button variant="hero" className="w-full" disabled={disabled || submitting} onClick={submit}>
-          <Send /> {locked ? "Submitted" : "Submit early"}
+        <Button variant="hero" className="w-full" disabled={disabled} onClick={submit}>
+          <Send /> {locked || submitted ? "Submitted" : "Submit early"}
         </Button>
       </aside>
     </div>

@@ -1,4 +1,13 @@
-import { pickSuggestions, type PlayerView, type Session } from "@drawoff/contracts";
+import {
+  pickSuggestions,
+  applyOps,
+  cloneCanvas,
+  emptyCanvas,
+  type CanvasSnapshot,
+  type DrawOp,
+  type PlayerView,
+  type Session,
+} from "@drawoff/contracts";
 import { playerViewSchema } from "@drawoff/contracts";
 import {
   getMatchRoundAssignment,
@@ -33,8 +42,14 @@ interface MatchProgress {
   suggestions: string[];
   prompt: string | null;
   usedPrompts: string[];
+  canvases: Map<string, ArtistCanvas>;
   generation: number;
   timer: TimerHandle | null;
+}
+
+interface ArtistCanvas {
+  canvas: CanvasSnapshot;
+  locked: boolean;
 }
 
 export interface MatchStateMachineOptions {
@@ -85,6 +100,7 @@ export class MatchStateMachine {
       suggestions: [],
       prompt: null,
       usedPrompts: [],
+      canvases: new Map(),
       generation: 0,
       timer: null,
     };
@@ -114,6 +130,32 @@ export class MatchStateMachine {
       "ROUND_RESULT",
       MATCH_PHASE_DURATIONS_MS.ROUND_RESULT,
     );
+  }
+
+  sendDrawOps(session: Session, ops: DrawOp[]): void {
+    const { player, progress } = this.requireArtistDrawing(session);
+    this.requireBeforeDeadline(progress);
+    const drawing = progress.canvases.get(player.id)!;
+    if (drawing.locked) {
+      throw new RoomServiceError("FORBIDDEN", "Your drawing is already submitted.");
+    }
+
+    const next = cloneCanvas(drawing.canvas);
+    for (const op of ops) {
+      const canUndo = next.actions.length > 0;
+      const accepted = applyOps(next, [op]);
+      if (accepted === 0 && !(op.type === "undo" && !canUndo)) {
+        throw new RoomServiceError("REQUEST_FAILED", "The drawing operation could not be committed.");
+      }
+    }
+    drawing.canvas = next;
+  }
+
+  submitCanvas(session: Session): void {
+    const { player, progress } = this.requireArtistDrawing(session);
+    this.requireBeforeDeadline(progress);
+    const drawing = progress.canvases.get(player.id)!;
+    drawing.locked = true;
   }
 
   getPlayerView(session: Session): PlayerView {
@@ -148,6 +190,22 @@ export class MatchStateMachine {
       suggestions:
         progress.phase === "WORD_SELECTION" && role === "judge"
           ? [...progress.suggestions]
+          : null,
+      myCanvas:
+        role === "artist" &&
+        ["DRAWING", "JUDGING", "ROUND_RESULT", "FINAL_RESULT"].includes(progress.phase)
+          ? (() => {
+              const drawing = progress.canvases.get(authenticated.playerId);
+              return drawing
+                ? {
+                    canvas: cloneCanvas(drawing.canvas),
+                    locked:
+                      drawing.locked ||
+                      progress.phase !== "DRAWING" ||
+                      (progress.deadline !== null && this.readClock() >= progress.deadline),
+                  }
+                : null;
+            })()
           : null,
       match: {
         roundIndex: progress.roundIndex,
@@ -209,6 +267,25 @@ export class MatchStateMachine {
     if (!room.matchSchedule || getMatchRoundAssignment(room.matchSchedule, roundIndex).judgeId !== playerId) {
       throw new RoomServiceError("FORBIDDEN", "Only the current judge can advance this phase.");
     }
+  }
+
+  private requireArtistDrawing(
+    session: Session,
+  ): {
+    player: RoomSnapshot["players"][number];
+    progress: MatchProgress;
+  } {
+    const { room, player, progress } = this.requireMatchMember(session);
+    this.requirePhase(progress, "DRAWING");
+    const assignment = getMatchRoundAssignment(room.matchSchedule!, progress.roundIndex);
+    if (!assignment.artistIds.includes(player.id)) {
+      throw new RoomServiceError("FORBIDDEN", "Only an Artist can edit a drawing.");
+    }
+    const drawing = progress.canvases.get(player.id);
+    if (!drawing) {
+      throw new RoomServiceError("WRONG_PHASE", "The Artist drawing is not available.");
+    }
+    return { player, progress };
   }
 
   private requireBeforeDeadline(progress: MatchProgress): void {
@@ -353,6 +430,17 @@ export class MatchStateMachine {
   ): void {
     progress.prompt = prompt;
     progress.usedPrompts.push(prompt);
+    const room = this.rooms.getRoom(roomCode);
+    if (!room.matchSchedule) {
+      throw new RoomServiceError("WRONG_PHASE", "There is no active match.");
+    }
+    const assignment = getMatchRoundAssignment(room.matchSchedule, progress.roundIndex);
+    progress.canvases = new Map(
+      assignment.artistIds.map((playerId) => [
+        playerId,
+        { canvas: emptyCanvas(), locked: false },
+      ]),
+    );
     this.transition(
       roomCode,
       progress,

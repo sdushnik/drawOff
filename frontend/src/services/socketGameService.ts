@@ -119,8 +119,12 @@ export function createSocketGameService(serverUrl: string): GameService {
     selectPrompt: async (session, prompt) => {
       await request("prompt:select", { session, prompt });
     },
-    sendDrawOps: async (_session: Session, _ops: DrawOp[]) => unsupported(),
-    submitCanvas: unsupported,
+    sendDrawOps: async (session: Session, ops: DrawOp[]) => {
+      await request("drawing:ops", { session, ops });
+    },
+    submitCanvas: async (session: Session) => {
+      await request("drawing:submit", { session });
+    },
     submitRatings: unsupported,
     rematch: unsupported,
     returnToLobby: unsupported,

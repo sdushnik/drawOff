@@ -194,6 +194,79 @@ test("Socket.IO prompt requests enforce privacy, authorization, normalization, a
       ok: true,
       response: {},
     });
+
+    test("Socket.IO drawing requests commit before acknowledgement and lock only the submitting Artist", async () => {
+      const fixture = await openThreePlayerMatch();
+      const [judgeSocket, artistSocket, otherArtistSocket] = fixture.sockets;
+      const [judge, artist, otherArtist] = fixture.sessions;
+
+      try {
+        const roleReveal = waitForView(judgeSocket!, (view) => view.phase === "ROLE_REVEAL");
+        assert.equal((await request(judgeSocket!, "match:start", { session: judge })).ok, true);
+        await roleReveal;
+        const wordSelection = waitForView(judgeSocket!, (view) => view.phase === "WORD_SELECTION");
+        fixture.clock.runNext();
+        await wordSelection;
+        const drawing = waitForView(artistSocket!, (view) => view.phase === "DRAWING");
+        assert.equal(
+          (
+            await request(judgeSocket!, "prompt:select", {
+              session: judge,
+              prompt: "lighthouse",
+            })
+          ).ok,
+          true,
+        );
+        const drawingView = await drawing;
+        assert.equal(drawingView.prompt, "lighthouse");
+
+        const unauthorized = await request(judgeSocket!, "drawing:ops", {
+          session: judge,
+          ops: [{ type: "clear", id: "judge-clear" }],
+        });
+        assert.equal(unauthorized.ok, false);
+        if (!unauthorized.ok) assert.equal(unauthorized.error.code, "FORBIDDEN");
+
+        const committed = waitForView(
+          artistSocket!,
+          (view) => view.myCanvas?.canvas.actions.length === 2,
+        );
+        const orderedOps = await request(artistSocket!, "drawing:ops", {
+          session: artist,
+          ops: [
+            {
+              type: "stroke",
+              id: "stroke-1",
+              tool: "pen",
+              color: "#e5484d",
+              size: 8,
+              points: [10, 10, 30, 40],
+            },
+            { type: "fill", id: "fill-1", x: 300, y: 200, color: "#0090ff" },
+            { type: "clear", id: "clear-1" },
+            { type: "undo", id: "undo-1" },
+          ],
+        });
+        assert.equal(orderedOps.ok, true);
+        const committedView = await committed;
+        assert.deepEqual(committedView.myCanvas?.canvas.actions.map(({ type }) => type), [
+          "stroke",
+          "fill",
+        ]);
+        assert.equal(committedView.myCanvas?.canvas.resets, 1);
+        assert.equal(committedView.phase, "DRAWING");
+
+        const locked = waitForView(artistSocket!, (view) => view.myCanvas?.locked === true);
+        assert.equal((await request(artistSocket!, "drawing:submit", { session: artist })).ok, true);
+        assert.equal((await locked).phase, "DRAWING");
+        assert.equal((await request(otherArtistSocket!, "drawing:ops", {
+          session: otherArtist,
+          ops: [{ type: "clear", id: "other-clear" }],
+        })).ok, true);
+      } finally {
+        await closeServer(fixture.sockets, fixture.io);
+      }
+    });
     const selectionViews = [
       waitForView(judgeSocket!, (view) => view.phase === "WORD_SELECTION"),
       waitForView(artistSocket!, (view) => view.phase === "WORD_SELECTION"),

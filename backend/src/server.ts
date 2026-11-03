@@ -350,6 +350,38 @@ function registerRoomHandlers(
         },
       );
     });
+
+    socket.on("drawing:ops", (payload, acknowledge) => {
+      handleSocketRequest(
+        socket,
+        payload,
+        clientToServerPayloadSchemas["drawing:ops"],
+        clientToServerResponseSchemas["drawing:ops"],
+        acknowledge,
+        ({ session, ops }) => {
+          assertAttached(socket, session);
+          matchStateMachine.sendDrawOps(session, ops);
+          publishRoom(session.roomCode);
+          return {};
+        },
+      );
+    });
+
+    socket.on("drawing:submit", (payload, acknowledge) => {
+      handleSocketRequest(
+        socket,
+        payload,
+        clientToServerPayloadSchemas["drawing:submit"],
+        clientToServerResponseSchemas["drawing:submit"],
+        acknowledge,
+        ({ session }) => {
+          assertAttached(socket, session);
+          matchStateMachine.submitCanvas(session);
+          publishRoom(session.roomCode);
+          return {};
+        },
+      );
+    });
   });
 }
 

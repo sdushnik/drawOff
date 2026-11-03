@@ -1,4 +1,5 @@
 import { z } from "zod";
+export { applyOps, cloneCanvas, emptyCanvas, sanitizeOp } from "./canvasOps.js";
 
 export { PROMPTS, pickSuggestions } from "./prompts.js";
 
@@ -328,7 +329,7 @@ const promptPayload = z
   .object({ session: sessionSchema, prompt: promptSchema })
   .strict();
 const drawOpsPayload = z
-  .object({ session: sessionSchema, ops: z.array(drawOpSchema) })
+  .object({ session: sessionSchema, ops: z.array(drawOpSchema).max(60) })
   .strict();
 const ratingsPayload = z
   .object({

@@ -364,6 +364,65 @@ test("word-selection suggestions are distinct and private until the Judge finali
   assert.equal(fixture.view(fixture.sessions[1]!).suggestions, null);
 });
 
+test("drawing operations stay private, commit in order, and early submit locks only one Artist", () => {
+  const fixture = createFixture();
+  advanceToWordSelection(fixture);
+  fixture.machine.selectPrompt(fixture.host, "lighthouse");
+  const judgeId = fixture.view().match!.judgeId;
+  const judge = fixture.sessions.find(({ playerId }) => playerId === judgeId)!;
+  const artists = fixture.sessions.filter(({ playerId }) => playerId !== judgeId);
+  const artist = artists[0]!;
+  const otherArtist = artists[1]!;
+
+  const ops = [
+    { type: "stroke", id: "s1", tool: "pen", color: "#e5484d", size: 8, points: [10, 10] },
+    { type: "stroke", id: "s1", tool: "pen", color: "#e5484d", size: 8, points: [30, 40] },
+    { type: "fill", id: "f1", x: 300, y: 200, color: "#0090ff" },
+    { type: "clear", id: "c1" },
+    { type: "undo", id: "u1" },
+  ] as const;
+  fixture.machine.sendDrawOps(artist, [...ops]);
+
+  const own = fixture.view(artist);
+  assert.deepEqual(own.myCanvas?.canvas.actions.map(({ type }) => type), ["stroke", "fill"]);
+  assert.deepEqual(own.myCanvas?.canvas.actions[0], {
+    ...ops[0],
+    points: [10, 10, 30, 40],
+  });
+  assert.equal(own.myCanvas?.canvas.resets, 1);
+  assert.deepEqual(fixture.view(otherArtist).myCanvas?.canvas.actions, []);
+  assert.equal(fixture.view(judge).myCanvas, null);
+
+  expectRoomError(() => fixture.machine.sendDrawOps(judge, [ops[0]!]), "FORBIDDEN");
+  fixture.machine.submitCanvas(artist);
+  assert.equal(fixture.view(artist).phase, "DRAWING");
+  assert.equal(fixture.view(artist).myCanvas?.locked, true);
+  assert.equal(fixture.view(otherArtist).myCanvas?.locked, false);
+  expectRoomError(() => fixture.machine.sendDrawOps(artist, [ops[0]!]), "FORBIDDEN");
+
+  fixture.machine.sendDrawOps(otherArtist, [ops[0]!]);
+  assert.equal(fixture.view(otherArtist).myCanvas?.canvas.actions.length, 1);
+  assert.equal(fixture.view(artist).myCanvas?.canvas.actions.length, 2);
+});
+
+test("drawing operations and submissions reject at the server-owned deadline", () => {
+  const fixture = createFixture();
+  advanceToWordSelection(fixture);
+  fixture.machine.selectPrompt(fixture.host, "lighthouse");
+  const artist = fixture.sessions.find(({ playerId }) => playerId !== fixture.view().match!.judgeId)!;
+  const deadline = fixture.view().deadline!;
+  fixture.setTime(deadline);
+  expectRoomError(
+    () =>
+      fixture.machine.sendDrawOps(artist, [
+        { type: "clear", id: "late-clear" },
+      ]),
+    "DEADLINE_PASSED",
+  );
+  expectRoomError(() => fixture.machine.submitCanvas(artist), "DEADLINE_PASSED");
+  assert.deepEqual(fixture.view(artist).myCanvas?.canvas.actions, []);
+});
+
 test("custom prompts accept normalized lengths 1 and 40 and reject invalid text without mutation", () => {
   for (const prompt of [" x ", ` ${"x".repeat(40)} `]) {
     const fixture = createFixture();
