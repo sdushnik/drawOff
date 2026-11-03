@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import type { DrawOp, PlayerView, Session } from "@/game/types";
+import type { DrawOp, PlayerView, Session } from "@drawoff/contracts";
 import { ServiceError, type GameService } from "@/services/gameService";
 import { useGameService } from "@/services/ServiceProvider";
 import { clearSession, loadSession, saveSession } from "@/lib/session";

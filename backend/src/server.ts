@@ -1,5 +1,21 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import { Server as SocketIOServer } from "socket.io";
+import type {
+  ClientToServerPayloads,
+  ClientToServerResponses,
+  ServerToClientPayloads,
+} from "@drawoff/contracts";
+
+type ClientSocketEvents = {
+  [Event in keyof ClientToServerPayloads]: (
+    payload: ClientToServerPayloads[Event],
+    acknowledge: (response: ClientToServerResponses[Event]) => void,
+  ) => void;
+};
+
+type ServerSocketEvents = {
+  [Event in keyof ServerToClientPayloads]: (payload: ServerToClientPayloads[Event]) => void;
+};
 
 export interface RunningServer {
   app: FastifyInstance;
@@ -9,7 +25,7 @@ export interface RunningServer {
 
 export function createServer() {
   const app = Fastify();
-  const io = new SocketIOServer(app.server);
+  const io = new SocketIOServer<ClientSocketEvents, ServerSocketEvents>(app.server);
 
   return { app, io };
 }

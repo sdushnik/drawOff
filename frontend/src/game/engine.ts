@@ -36,24 +36,21 @@ import {
 import type {
   CanvasSnapshot,
   Cycles,
+  DrawingState,
   FinalResult,
+  MatchState,
   Phase,
   PlayerSummary,
   PlayerView,
   RoundResult,
+  RoomPlayer,
+  RoomRound,
+  RoomState,
+  ServiceErrorCode,
   Session,
-} from "./types";
+} from "@drawoff/contracts";
 
-export type GameErrorCode =
-  | "INVALID_INPUT"
-  | "ROOM_NOT_FOUND"
-  | "MATCH_IN_PROGRESS"
-  | "UNAUTHORIZED"
-  | "FORBIDDEN"
-  | "WRONG_PHASE"
-  | "NOT_ENOUGH_PLAYERS"
-  | "PAUSED"
-  | "DEADLINE_PASSED";
+export type GameErrorCode = Exclude<ServiceErrorCode, "NETWORK">;
 
 export class GameError extends Error {
   constructor(
@@ -65,55 +62,11 @@ export class GameError extends Error {
   }
 }
 
-interface PlayerRecord {
-  id: string;
-  name: string;
-  token: string;
-  connected: boolean;
-  isBot: boolean;
-}
-
-interface DrawingRecord {
-  label: string;
-  artistId: string;
-  canvas: CanvasSnapshot;
-  locked: boolean;
-}
-
-interface RoundRecord {
-  judgeId: string;
-  artistIds: string[];
-  suggestions: string[];
-  prompt: string | null;
-  drawings: DrawingRecord[];
-  overtime: boolean;
-  result: RoundResult | null;
-}
-
-interface MatchRecord {
-  order: string[];
-  cycles: Cycles;
-  roundIndex: number;
-  totalRounds: number;
-  scores: Record<string, number>;
-  round: RoundRecord;
-  usedPrompts: string[];
-  final: FinalResult | null;
-}
-
-export interface RoomRecord {
-  code: string;
-  hostId: string;
-  players: PlayerRecord[];
-  cycles: Cycles;
-  phase: Phase;
-  phaseStartedAt: number;
-  deadline: number | null;
-  pause: { playerId: string; until: number; remainingMs: number | null } | null;
-  match: MatchRecord | null;
-  interruptedReason: string | null;
-  notice: string | null;
-}
+type PlayerRecord = RoomPlayer;
+type DrawingRecord = DrawingState;
+type RoundRecord = RoomRound;
+type MatchRecord = MatchState;
+export type RoomRecord = RoomState;
 
 export interface EngineOptions {
   now?: () => number;

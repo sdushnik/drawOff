@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { applyOps, cloneCanvas } from "@/game/canvasOps";
 import { BRUSH_SIZES, CANVAS_HEIGHT, CANVAS_WIDTH, PALETTE } from "@/game/constants";
 import { CanvasRenderer } from "@/game/render";
-import type { CanvasSnapshot, DrawOp, DrawTool } from "@/game/types";
+import type { CanvasSnapshot, DrawOp, DrawTool } from "@drawoff/contracts";
 import { cn } from "@/lib/utils";
 
 const FLUSH_MS = 80;

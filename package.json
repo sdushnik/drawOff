@@ -6,6 +6,7 @@
     "npm": ">=10"
   },
   "workspaces": [
+    "packages/contracts",
     "frontend",
     "backend"
   ],

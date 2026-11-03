@@ -6,19 +6,10 @@
  *  - mock/mockGameService.ts — in-browser authoritative engine + demo players (default)
  *  - a real implementation (e.g. Socket.IO client) can be dropped in via services/index.ts
  */
-import type { Cycles, DrawOp, PlayerView, Session } from "@/game/types";
+import type { Cycles, DrawOp, PlayerView, Session } from "@drawoff/contracts";
 
-export type ServiceErrorCode =
-  | "INVALID_INPUT"
-  | "ROOM_NOT_FOUND"
-  | "MATCH_IN_PROGRESS"
-  | "UNAUTHORIZED"
-  | "FORBIDDEN"
-  | "WRONG_PHASE"
-  | "NOT_ENOUGH_PLAYERS"
-  | "PAUSED"
-  | "DEADLINE_PASSED"
-  | "NETWORK";
+export type { ServiceErrorCode } from "@drawoff/contracts";
+import type { ServiceErrorCode } from "@drawoff/contracts";
 
 export class ServiceError extends Error {
   constructor(

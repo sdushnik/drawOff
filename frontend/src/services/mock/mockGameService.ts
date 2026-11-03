@@ -4,7 +4,7 @@
  * sessionStorage so a page refresh reconnects to the same game.
  */
 import { GameEngine, GameError, type RoomRecord } from "@/game/engine";
-import type { PlayerView, Session } from "@/game/types";
+import type { PlayerView, Session } from "@drawoff/contracts";
 import { ServiceError, type GameService } from "../gameService";
 import { BOT_NAMES, BotDirector } from "./bots";
 

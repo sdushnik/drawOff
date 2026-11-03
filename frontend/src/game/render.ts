@@ -1,6 +1,6 @@
 import { CANVAS_BACKGROUND, CANVAS_HEIGHT, CANVAS_WIDTH } from "./constants";
 import { floodFill, hexToRgba } from "./floodFill";
-import type { CanvasAction, CanvasSnapshot } from "./types";
+import type { CanvasAction, CanvasSnapshot } from "@drawoff/contracts";
 
 /**
  * Incremental canvas renderer. Replays only what changed since the last call;

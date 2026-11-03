@@ -1,7 +1,7 @@
 /** Simulated players for the mock backend. They act only through the engine's public API. */
 import { CANVAS_HEIGHT, CANVAS_WIDTH, PALETTE } from "@/game/constants";
 import type { GameEngine } from "@/game/engine";
-import type { DrawOp } from "@/game/types";
+import type { DrawOp } from "@drawoff/contracts";
 
 export const BOT_NAMES = [
   "Pixel Pete",

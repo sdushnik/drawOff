@@ -4,11 +4,15 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "predev": "npm run build --workspace @drawoff/contracts",
     "build": "tsc -p tsconfig.json",
+    "prebuild": "npm run build --workspace @drawoff/contracts",
     "start": "node dist/index.js",
-    "test": "tsx --test test/*.test.ts"
+    "test": "tsx --test test/*.test.ts",
+    "pretest": "npm run build --workspace @drawoff/contracts"
   },
   "dependencies": {
+    "@drawoff/contracts": "1.0.0",
     "fastify": "^5.6.2",
     "socket.io": "^4.8.1"
   },

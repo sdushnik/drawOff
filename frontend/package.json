@@ -5,18 +5,22 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev",
+    "predev": "npm run build --workspace @drawoff/contracts",
     "build": "vite build",
+    "prebuild": "npm run build --workspace @drawoff/contracts",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "vitest run",
+    "pretest": "npm run build --workspace @drawoff/contracts",
     "test:watch": "vitest"
   },
   "overrides": {
     "rolldown": "1.2.1"
   },
   "dependencies": {
+    "@drawoff/contracts": "1.0.0",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",

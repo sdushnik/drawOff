@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ArrowLeft, Eye, LayoutGrid, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { LiveCanvas } from "@/game/types";
+import type { LiveCanvas } from "@drawoff/contracts";
 import { cn } from "@/lib/utils";
 import { DrawingCanvas } from "./DrawingCanvas";
 

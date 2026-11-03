@@ -7,7 +7,7 @@ import {
   MAX_POINTS_PER_OP,
   MAX_POINTS_PER_STROKE,
 } from "./constants";
-import type { CanvasSnapshot, DrawOp } from "./types";
+import type { CanvasSnapshot, DrawOp } from "@drawoff/contracts";
 
 export function emptyCanvas(): CanvasSnapshot {
   return { actions: [], rev: 0, resets: 0 };

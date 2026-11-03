@@ -9,7 +9,7 @@ import {
   WORD_SELECTION_MS,
 } from "./constants";
 import { judgingSeconds } from "./rules";
-import type { Session } from "./types";
+import type { Session } from "@drawoff/contracts";
 
 function setup(playerCount = 3) {
   let t = 1_000_000;

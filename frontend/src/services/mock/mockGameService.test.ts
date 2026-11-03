@@ -2,7 +2,7 @@ import { describe, expect, it, vi, afterEach } from "vitest";
 import { createMockGameService } from "./mockGameService";
 import { ServiceError } from "../gameService";
 import { GameEngine } from "@/game/engine";
-import type { PlayerView } from "@/game/types";
+import type { PlayerView } from "@drawoff/contracts";
 
 afterEach(() => vi.useRealTimers());
 

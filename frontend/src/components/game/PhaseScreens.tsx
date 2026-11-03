@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PROMPT_MAX } from "@/game/constants";
 import { validatePrompt } from "@/game/rules";
-import type { PlayerView } from "@/game/types";
+import type { PlayerView } from "@drawoff/contracts";
 import type { GameRoom } from "@/hooks/useGameRoom";
 import { useCountdown } from "@/hooks/useGameRoom";
 import { cn } from "@/lib/utils";

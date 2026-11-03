@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { isValidRating } from "@/game/rules";
-import type { CanvasSnapshot } from "@/game/types";
+import type { CanvasSnapshot } from "@drawoff/contracts";
 import { cn } from "@/lib/utils";
 import { DrawingCanvas } from "./DrawingCanvas";
 

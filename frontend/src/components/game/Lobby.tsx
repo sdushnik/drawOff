@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { CYCLE_OPTIONS, MIN_PLAYERS } from "@/game/constants";
 import { estimateMatchSeconds, totalRounds } from "@/game/rules";
-import type { Cycles, PlayerView } from "@/game/types";
+import type { Cycles, PlayerView } from "@drawoff/contracts";
 import type { GameRoom } from "@/hooks/useGameRoom";
 import { cn } from "@/lib/utils";
 import { formatDuration, initials } from "./util";

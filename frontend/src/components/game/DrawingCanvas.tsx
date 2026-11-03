@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { CANVAS_HEIGHT, CANVAS_WIDTH } from "@/game/constants";
 import { CanvasRenderer } from "@/game/render";
-import type { CanvasSnapshot } from "@/game/types";
+import type { CanvasSnapshot } from "@drawoff/contracts";
 import { cn } from "@/lib/utils";
 
 /** Read-only canvas that replays a synchronized snapshot incrementally. */

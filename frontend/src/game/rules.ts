@@ -8,7 +8,7 @@ import {
   ROOM_CODE_LENGTH,
   ROUND_RESULT_MS,
 } from "./constants";
-import type { Cycles, Standing } from "./types";
+import type { Cycles, Standing } from "@drawoff/contracts";
 
 type Result<T> = { ok: true; value: T } | { ok: false; error: string };
 

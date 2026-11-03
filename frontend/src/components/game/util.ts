@@ -1,4 +1,4 @@
-import type { PlayerView } from "@/game/types";
+import type { PlayerView } from "@drawoff/contracts";
 
 export function nameOf(view: PlayerView, id: string): string {
   return view.players.find((p) => p.id === id)?.name ?? "Someone who left";

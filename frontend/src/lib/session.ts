@@ -1,4 +1,4 @@
-import type { Session } from "@/game/types";
+import type { Session } from "@drawoff/contracts";
 
 const key = (code: string) => `drawoff:session:${code.toUpperCase()}`;
 
