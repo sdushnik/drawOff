@@ -508,6 +508,8 @@ test("host lobby controls are enforced server-side and broadcast to every connec
       [fourthViews.at(-1), fourth.playerId],
     ] as const) {
       assert.ok(view);
+      assert.equal(view.phase, "ROLE_REVEAL");
+      assert.ok(view.deadline !== null);
       assert.equal(view.match?.roundIndex, 0);
       assert.equal(view.match?.totalRounds, 9);
       assert.deepEqual(view.match?.order, firstRound.order);

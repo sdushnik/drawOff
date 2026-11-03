@@ -22,6 +22,7 @@ import {
   RoomService,
   RoomServiceError,
 } from "./room-service.js";
+import { MatchStateMachine } from "./match-state-machine.js";
 
 type ClientSocketEvents = {
   [Event in keyof ClientToServerPayloads]: (
@@ -90,6 +91,7 @@ function handleSocketRequest<TPayload, TResponse>(
 function registerRoomHandlers(io: SocketIOServer, roomService: RoomService): void {
   const attachedSessions = new Map<string, Session>();
   const playerSockets = new Map<string, Set<string>>();
+  let matchStateMachine: MatchStateMachine;
 
   const playerKey = (session: Session) => `${session.roomCode}:${session.playerId}`;
 
@@ -107,13 +109,18 @@ function registerRoomHandlers(io: SocketIOServer, roomService: RoomService): voi
       const socket = io.sockets.sockets.get(socketId);
       if (!socket) continue;
       try {
-        socket.emit("state:update", roomService.getLobbyView(session));
+        socket.emit("state:update", matchStateMachine.getPlayerView(session));
       } catch {
         socket.leave(roomCode);
         attachedSessions.delete(socketId);
       }
     }
   };
+
+  matchStateMachine = new MatchStateMachine(roomService, {
+    onTransition: publishRoom,
+  });
+  io.engine.on("close", () => matchStateMachine.dispose());
 
   const detach = (
     socket: Socket<ClientSocketEvents, ServerSocketEvents>,
@@ -314,7 +321,7 @@ function registerRoomHandlers(io: SocketIOServer, roomService: RoomService): voi
         acknowledge,
         ({ session }) => {
           assertAttached(socket, session);
-          roomService.startMatch(session);
+          matchStateMachine.startMatch(session);
           publishRoom(session.roomCode);
           return {};
         },

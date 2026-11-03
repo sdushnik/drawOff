@@ -78,5 +78,30 @@ credentials in errors. Resume, leave, kick, and cycle changes pass the
 submitted session to `RoomService` for room-and-player token verification; a
 client-supplied player ID by itself is never authorization. New joins to a room
 marked as having an active match fail with `MATCH_IN_PROGRESS` before
-membership or any roster update changes. This backend currently implements
-lobby synchronization, not the subsequent gameplay actions.
+membership or any roster update changes.
+
+## Authoritative match phases
+
+`MatchStateMachine` owns normal gameplay phase transitions and publishes the
+current phase and server deadline in each personalized view. Match start enters
+`ROLE_REVEAL` for 4 seconds; its server timer advances to `WORD_SELECTION` for
+30 seconds. Prompt-selection handling calls `startDrawing` after its own
+validation. Drawing lasts 60 seconds before the server enters `JUDGING`; the
+Judge's deadline is `max(45 seconds, 15 seconds × Artist count)`. Rating
+handling calls `finishJudging` after accepting the Judge's submission, which
+enters `ROUND_RESULT` for 12 seconds. The server timer then advances to the
+next `ROLE_REVEAL`, or to `FINAL_RESULT` after the last scheduled round.
+
+Boundary methods authenticate the saved room session, frozen roster
+membership, current Judge role, phase, and server-clock deadline before
+mutating phase state. Client timestamps are not accepted. Repeated, stale, and
+racing timer callbacks are guarded by per-room transition generations; delayed
+callbacks preserve the scheduled boundary rather than extending a phase. The
+clock and timer functions are injectable for deterministic tests.
+
+Prompt selection and its timeout fallback are owned by #11; canvas freeze and
+early submission by #16; scoring, judging timeout behavior, and result data by
+#18. This state machine exposes only their transition boundaries. It does not
+implement disconnect pause or interruption behavior: those must be added via
+the dedicated policies in #20/#21 and cannot bypass ordinary authorization,
+phase, or deadline checks.
