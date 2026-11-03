@@ -1,0 +1,924 @@
+openapi: 3.1.0
+info:
+  title: DrawOff Backend API
+  version: 1.0.0
+  description: |
+    Backend contract corresponding to the frontend GameService interface in
+    frontend/src/services/gameService.ts. The frontend currently defaults to
+    an in-browser mock service; it does not yet issue these HTTP requests.
+    The HTTP routes below are the REST mapping for that interface. Live state
+    delivery and high-frequency drawing synchronization use the Socket.IO
+    contract described in x-socketio.
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Local backend
+  - url: https://api.example.com/api/v1
+    description: Production backend
+tags:
+  - name: Rooms
+  - name: Sessions
+  - name: Lobby
+  - name: Match
+  - name: Drawing
+security:
+  - sessionToken: []
+
+paths:
+  /rooms:
+    post:
+      tags: [Rooms]
+      operationId: createRoom
+      summary: Create a private room and become its host
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRoomRequest"
+      responses:
+        "201":
+          description: Room created; the returned token authenticates this player.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "400":
+          $ref: "#/components/responses/InvalidInput"
+  /rooms/{roomCode}/players:
+    post:
+      tags: [Rooms]
+      operationId: joinRoom
+      summary: Join an existing room as a player
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/RoomCode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JoinRoomRequest"
+      responses:
+        "201":
+          description: Player joined; the returned token authenticates this player.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "400":
+          $ref: "#/components/responses/InvalidInput"
+        "404":
+          $ref: "#/components/responses/RoomNotFound"
+        "409":
+          $ref: "#/components/responses/MatchInProgress"
+  /sessions/resume:
+    post:
+      tags: [Sessions]
+      operationId: resumeSession
+      summary: Reattach a saved player session after refresh or reconnect
+      description: Supply the session token in the Authorization header.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResumeSessionRequest"
+      responses:
+        "200":
+          description: The existing session is active again.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/RoomNotFound"
+  /rooms/{roomCode}/players/me:
+    delete:
+      tags: [Rooms]
+      operationId: leaveRoom
+      summary: Leave the room
+      parameters:
+        - $ref: "#/components/parameters/RoomCode"
+      responses:
+        "204":
+          description: Player left; no response body.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/RoomNotFound"
+  /rooms/{roomCode}/players/{playerId}:
+    delete:
+      tags: [Lobby]
+      operationId: kickPlayer
+      summary: Remove a player from the lobby
+      description: Host-only; players can only be removed while the room is in the lobby.
+      parameters:
+        - $ref: "#/components/parameters/RoomCode"
+        - $ref: "#/components/parameters/PlayerId"
+      responses:
+        "204":
+          description: Player removed; no response body.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/RoomNotFound"
+        "409":
+          $ref: "#/components/responses/WrongPhase"
+  /rooms/{roomCode}/settings:
+    patch:
+      tags: [Lobby]
+      operationId: setCycles
+      summary: Set the number of match cycles
+      description: Host-only; can only be changed in the lobby.
+      parameters:
+        - $ref: "#/components/parameters/RoomCode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetCyclesRequest"
+      responses:
+        "204":
+          description: Setting updated; no response body.
+        "400":
+          $ref: "#/components/responses/InvalidInput"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/RoomNotFound"
+        "409":
+          $ref: "#/components/responses/WrongPhase"
+  /rooms/{roomCode}/demo-players:
+    post:
+      tags: [Lobby]
+      operationId: addDemoPlayer
+      summary: Add a simulated player
+      description: |
+        Optional demo-only operation. Expose it only when the frontend service
+        advertises capabilities.demoPlayers=true. Host-only; not required for
+        production game operation.
+      x-capability: demoPlayers
+      parameters:
+        - $ref: "#/components/parameters/RoomCode"
+      responses:
+        "204":
+          description: Demo player added; the updated roster arrives in room:view.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/RoomNotFound"
+  /rooms/{roomCode}/match:
+    post:
+      tags: [Match]
+      operationId: startMatch
+      summary: Start a match
+      description: Host-only; requires at least three connected players.
+      parameters:
+        - $ref: "#/components/parameters/RoomCode"
+      responses:
+        "204":
+          description: Match started; current state arrives in room:view.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/RoomNotFound"
+        "409":
+          $ref: "#/components/responses/NotEnoughPlayers"
+  /rooms/{roomCode}/match/prompt:
+    put:
+      tags: [Match]
+      operationId: selectPrompt
+      summary: Choose the prompt for the current round
+      description: Judge-only; accepted only during WORD_SELECTION.
+      parameters:
+        - $ref: "#/components/parameters/RoomCode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SelectPromptRequest"
+      responses:
+        "204":
+          description: Prompt selected; updated state arrives in room:view.
+        "400":
+          $ref: "#/components/responses/InvalidInput"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/RoomNotFound"
+        "409":
+          $ref: "#/components/responses/WrongPhase"
+  /rooms/{roomCode}/draw-ops:
+    post:
+      tags: [Drawing]
+      operationId: sendDrawOps
+      summary: Send ordered drawing operations
+      description: |
+        Artist-only during DRAWING and before the server deadline. This HTTP
+        operation is the request/response equivalent of the room:drawOps
+        Socket.IO event; use Socket.IO for live synchronization.
+      parameters:
+        - $ref: "#/components/parameters/RoomCode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendDrawOpsRequest"
+      responses:
+        "200":
+          description: Number of operations accepted by the server.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendDrawOpsResponse"
+        "400":
+          $ref: "#/components/responses/InvalidInput"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/RoomNotFound"
+        "409":
+          $ref: "#/components/responses/WrongPhase"
+  /rooms/{roomCode}/canvas/submit:
+    post:
+      tags: [Drawing]
+      operationId: submitCanvas
+      summary: Lock and submit the current player's drawing
+      description: Artist-only during DRAWING. A submitted canvas cannot be edited.
+      parameters:
+        - $ref: "#/components/parameters/RoomCode"
+      responses:
+        "204":
+          description: Canvas locked; updated state arrives in room:view.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/RoomNotFound"
+        "409":
+          $ref: "#/components/responses/WrongPhase"
+  /rooms/{roomCode}/match/ratings:
+    put:
+      tags: [Match]
+      operationId: submitRatings
+      summary: Submit ratings for every anonymous drawing
+      description: Judge-only during JUDGING; each gallery label must appear exactly once.
+      parameters:
+        - $ref: "#/components/parameters/RoomCode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitRatingsRequest"
+      responses:
+        "204":
+          description: Ratings accepted; round results arrive in room:view.
+        "400":
+          $ref: "#/components/responses/InvalidInput"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/RoomNotFound"
+        "409":
+          $ref: "#/components/responses/WrongPhase"
+  /rooms/{roomCode}/match/rematch:
+    post:
+      tags: [Match]
+      operationId: rematch
+      summary: Return the room to a fresh lobby for a rematch
+      description: Host-only; accepted only after FINAL_RESULT.
+      parameters:
+        - $ref: "#/components/parameters/RoomCode"
+      responses:
+        "204":
+          description: Room reset to the lobby; updated state arrives in room:view.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/RoomNotFound"
+        "409":
+          $ref: "#/components/responses/WrongPhase"
+  /rooms/{roomCode}/match/return-to-lobby:
+    post:
+      tags: [Match]
+      operationId: returnToLobby
+      summary: Return to the lobby after an interrupted match
+      description: Any room member; accepted only during MATCH_INTERRUPTED.
+      parameters:
+        - $ref: "#/components/parameters/RoomCode"
+      responses:
+        "204":
+          description: Room reset to the lobby; updated state arrives in room:view.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/RoomNotFound"
+        "409":
+          $ref: "#/components/responses/WrongPhase"
+
+components:
+  securitySchemes:
+    sessionToken:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+      description: |
+        The opaque token returned in Session.token. It identifies and
+        authenticates one room player; send as Authorization: Bearer <token>.
+  parameters:
+    RoomCode:
+      name: roomCode
+      in: path
+      required: true
+      description: Five-character room code (case-insensitive at the service boundary).
+      schema:
+        type: string
+        pattern: "^[A-Z0-9]{5}$"
+        minLength: 5
+        maxLength: 5
+    PlayerId:
+      name: playerId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+  responses:
+    InvalidInput:
+      description: Request is invalid.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/GameError"
+    Unauthorized:
+      description: Missing, expired, or invalid room session token.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/GameError"
+    Forbidden:
+      description: Authenticated player is not permitted to perform this action.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/GameError"
+    RoomNotFound:
+      description: Room does not exist or is no longer available.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/GameError"
+    MatchInProgress:
+      description: Players can only join while the room is in the lobby.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/GameError"
+    NotEnoughPlayers:
+      description: At least three connected players are required to start.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/GameError"
+    WrongPhase:
+      description: Action is not allowed in the current game phase.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/GameError"
+  schemas:
+    CreateRoomRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          $ref: "#/components/schemas/PlayerName"
+    JoinRoomRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          $ref: "#/components/schemas/PlayerName"
+    ResumeSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [roomCode]
+      properties:
+        roomCode:
+          $ref: "#/components/schemas/RoomCode"
+    SetCyclesRequest:
+      type: object
+      additionalProperties: false
+      required: [cycles]
+      properties:
+        cycles:
+          $ref: "#/components/schemas/Cycles"
+    SelectPromptRequest:
+      type: object
+      additionalProperties: false
+      required: [prompt]
+      properties:
+        prompt:
+          type: string
+          minLength: 1
+          maxLength: 40
+          description: Custom prompt, trimmed and whitespace-normalized by the server.
+          not:
+            pattern: "[<>{}]"
+    SendDrawOpsRequest:
+      type: object
+      additionalProperties: false
+      required: [ops]
+      properties:
+        ops:
+          type: array
+          maxItems: 60
+          items:
+            $ref: "#/components/schemas/DrawOp"
+    SendDrawOpsResponse:
+      type: object
+      additionalProperties: false
+      required: [accepted]
+      properties:
+        accepted:
+          type: integer
+          minimum: 0
+          maximum: 60
+          description: Accepted operations; malformed, over-limit, or inapplicable operations may be rejected.
+    SubmitRatingsRequest:
+      type: object
+      additionalProperties: false
+      required: [ratings]
+      properties:
+        ratings:
+          type: object
+          description: Keys must exactly match all anonymous labels in the current gallery.
+          minProperties: 1
+          additionalProperties:
+            $ref: "#/components/schemas/Rating"
+    Session:
+      type: object
+      additionalProperties: false
+      required: [roomCode, playerId, token]
+      properties:
+        roomCode:
+          $ref: "#/components/schemas/RoomCode"
+        playerId:
+          type: string
+          minLength: 1
+        token:
+          type: string
+          minLength: 1
+          description: Opaque per-player credential; keep private.
+    PlayerName:
+      type: string
+      minLength: 2
+      maxLength: 20
+      description: Name is trimmed, whitespace-normalized, and cannot contain angle brackets.
+      not:
+        pattern: "[<>]"
+    RoomCode:
+      type: string
+      pattern: "^[A-Z0-9]{5}$"
+      minLength: 5
+      maxLength: 5
+    Cycles:
+      type: integer
+      enum: [1, 2, 3]
+    Phase:
+      type: string
+      enum:
+        - LOBBY
+        - ROLE_REVEAL
+        - WORD_SELECTION
+        - DRAWING
+        - JUDGING
+        - ROUND_RESULT
+        - FINAL_RESULT
+        - MATCH_INTERRUPTED
+    ServiceErrorCode:
+      type: string
+      enum:
+        - INVALID_INPUT
+        - ROOM_NOT_FOUND
+        - MATCH_IN_PROGRESS
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - WRONG_PHASE
+        - NOT_ENOUGH_PLAYERS
+        - PAUSED
+        - DEADLINE_PASSED
+    GameError:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          $ref: "#/components/schemas/ServiceErrorCode"
+        message:
+          type: string
+    PlayerSummary:
+      type: object
+      additionalProperties: false
+      required: [id, name, isHost, connected, isBot]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        isHost:
+          type: boolean
+        connected:
+          type: boolean
+        isBot:
+          type: boolean
+    CanvasAction:
+      oneOf:
+        - $ref: "#/components/schemas/StrokeOp"
+        - $ref: "#/components/schemas/FillOp"
+        - $ref: "#/components/schemas/ClearOp"
+    DrawOp:
+      oneOf:
+        - $ref: "#/components/schemas/StrokeOp"
+        - $ref: "#/components/schemas/FillOp"
+        - $ref: "#/components/schemas/ClearOp"
+        - $ref: "#/components/schemas/UndoOp"
+      discriminator:
+        propertyName: type
+        mapping:
+          stroke: "#/components/schemas/StrokeOp"
+          fill: "#/components/schemas/FillOp"
+          clear: "#/components/schemas/ClearOp"
+          undo: "#/components/schemas/UndoOp"
+    StrokeOp:
+      type: object
+      additionalProperties: false
+      required: [type, id, tool, color, size, points]
+      properties:
+        type:
+          const: stroke
+        id:
+          $ref: "#/components/schemas/OperationId"
+        tool:
+          type: string
+          enum: [pen, eraser]
+        color:
+          $ref: "#/components/schemas/HexColor"
+        size:
+          type: integer
+          minimum: 1
+          maximum: 60
+        points:
+          type: array
+          minItems: 2
+          maxItems: 600
+          description: Flat x,y coordinate pairs in a 600 by 450 canvas; array length must be even.
+          x-even-length: true
+          items:
+            type: number
+            minimum: 0
+            maximum: 600
+    FillOp:
+      type: object
+      additionalProperties: false
+      required: [type, id, x, y, color]
+      properties:
+        type:
+          const: fill
+        id:
+          $ref: "#/components/schemas/OperationId"
+        x:
+          type: number
+          minimum: 0
+          maximum: 600
+        y:
+          type: number
+          minimum: 0
+          maximum: 450
+        color:
+          $ref: "#/components/schemas/HexColor"
+    ClearOp:
+      type: object
+      additionalProperties: false
+      required: [type, id]
+      properties:
+        type:
+          const: clear
+        id:
+          $ref: "#/components/schemas/OperationId"
+    UndoOp:
+      type: object
+      additionalProperties: false
+      required: [type, id]
+      properties:
+        type:
+          const: undo
+        id:
+          $ref: "#/components/schemas/OperationId"
+    OperationId:
+      type: string
+      minLength: 1
+      maxLength: 64
+    HexColor:
+      type: string
+      pattern: "^#[0-9a-fA-F]{6}$"
+    CanvasSnapshot:
+      type: object
+      additionalProperties: false
+      required: [actions, rev, resets]
+      properties:
+        actions:
+          type: array
+          maxItems: 4000
+          items:
+            $ref: "#/components/schemas/CanvasAction"
+        rev:
+          type: integer
+          minimum: 0
+        resets:
+          type: integer
+          minimum: 0
+    LiveCanvas:
+      type: object
+      additionalProperties: false
+      required: [label, canvas, locked]
+      properties:
+        label:
+          type: string
+        canvas:
+          $ref: "#/components/schemas/CanvasSnapshot"
+        locked:
+          type: boolean
+    RoundResultEntry:
+      type: object
+      additionalProperties: false
+      required: [label, artistId, rating, canvas]
+      properties:
+        label:
+          type: string
+        artistId:
+          type: string
+        rating:
+          $ref: "#/components/schemas/Rating"
+        canvas:
+          $ref: "#/components/schemas/CanvasSnapshot"
+    RoundResult:
+      type: object
+      additionalProperties: false
+      required: [roundIndex, prompt, judgeId, entries, winners]
+      properties:
+        roundIndex:
+          type: integer
+          minimum: 0
+        prompt:
+          type: string
+        judgeId:
+          type: string
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoundResultEntry"
+        winners:
+          type: array
+          items:
+            type: string
+    Standing:
+      type: object
+      additionalProperties: false
+      required: [playerId, score]
+      properties:
+        playerId:
+          type: string
+        score:
+          type: integer
+          minimum: 0
+    FinalResult:
+      type: object
+      additionalProperties: false
+      required: [winners, standings, rounds, cycles]
+      properties:
+        winners:
+          type: array
+          items:
+            type: string
+        standings:
+          type: array
+          items:
+            $ref: "#/components/schemas/Standing"
+        rounds:
+          type: integer
+          minimum: 1
+        cycles:
+          $ref: "#/components/schemas/Cycles"
+    MatchView:
+      type: object
+      additionalProperties: false
+      required:
+        [roundIndex, totalRounds, cycle, judgeId, artistIds, order, scores]
+      properties:
+        roundIndex:
+          type: integer
+          minimum: 0
+        totalRounds:
+          type: integer
+          minimum: 1
+        cycle:
+          type: integer
+          minimum: 1
+        judgeId:
+          type: string
+        artistIds:
+          type: array
+          items:
+            type: string
+        order:
+          type: array
+          items:
+            type: string
+        scores:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+    PlayerView:
+      type: object
+      additionalProperties: false
+      required:
+        - roomCode
+        - serverNow
+        - me
+        - players
+        - hostId
+        - cycles
+        - phase
+        - deadline
+        - pause
+        - notice
+        - match
+        - role
+        - prompt
+        - suggestions
+        - myCanvas
+        - liveCanvases
+        - gallery
+        - judgingOvertime
+        - roundResult
+        - finalResult
+        - interruptedReason
+      properties:
+        roomCode:
+          $ref: "#/components/schemas/RoomCode"
+        serverNow:
+          type: integer
+          description: Server Unix timestamp in milliseconds.
+        me:
+          $ref: "#/components/schemas/PlayerSummary"
+        players:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlayerSummary"
+        hostId:
+          type: string
+        cycles:
+          $ref: "#/components/schemas/Cycles"
+        phase:
+          $ref: "#/components/schemas/Phase"
+        deadline:
+          type: [integer, "null"]
+          description: Server Unix timestamp in milliseconds, or null when no phase timer is active.
+        pause:
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required: [playerName, until]
+              properties:
+                playerName:
+                  type: string
+                until:
+                  type: integer
+                  description: Server Unix timestamp in milliseconds.
+        notice:
+          type: [string, "null"]
+        match:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/MatchView"
+        role:
+          type: [string, "null"]
+          enum: [judge, artist, null]
+        prompt:
+          type: [string, "null"]
+        suggestions:
+          type: [array, "null"]
+          items:
+            type: string
+        myCanvas:
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required: [canvas, locked]
+              properties:
+                canvas:
+                  $ref: "#/components/schemas/CanvasSnapshot"
+                locked:
+                  type: boolean
+        liveCanvases:
+          type: [array, "null"]
+          items:
+            $ref: "#/components/schemas/LiveCanvas"
+        gallery:
+          type: [array, "null"]
+          items:
+            type: object
+            additionalProperties: false
+            required: [label, canvas]
+            properties:
+              label:
+                type: string
+              canvas:
+                $ref: "#/components/schemas/CanvasSnapshot"
+        judgingOvertime:
+          type: boolean
+        roundResult:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/RoundResult"
+        finalResult:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/FinalResult"
+        interruptedReason:
+          type: [string, "null"]
+    Rating:
+      type: integer
+      minimum: 0
+      maximum: 100
+
+x-socketio:
+  path: /socket.io/
+  transports: [websocket, polling]
+  authentication:
+    mechanism: Socket.IO connection auth payload
+    payload:
+      token: "<Session.token>"
+    required: true
+  events:
+    client:
+      - name: room:subscribe
+        payload:
+          type: object
+          required: [roomCode]
+          properties:
+            roomCode:
+              $ref: "#/components/schemas/RoomCode"
+        description: Subscribe to the authenticated player's privacy-filtered room state.
+      - name: room:drawOps
+        payload:
+          $ref: "#/components/schemas/SendDrawOpsRequest"
+        description: |
+          Send ordered drawing operations during DRAWING. The authenticated
+          player must be an unlocked Artist in that room. Acknowledgement:
+          { accepted: integer }; errors use GameError.
+    server:
+      - name: room:view
+        payload:
+          $ref: "#/components/schemas/PlayerView"
+        description: |
+          Emitted immediately after subscription and after state changes.
+          Send a separately privacy-filtered PlayerView to each subscriber.
+      - name: room:error
+        payload:
+          $ref: "#/components/schemas/GameError"
+        description: |
+          Asynchronous subscription/action error. Disconnect or invalidate the
+          session when the token is unauthorized or the room no longer exists.

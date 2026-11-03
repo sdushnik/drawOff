@@ -1,0 +1,205 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * DrawOff design system — "sketchbook sticker" direction.
+ * Warm paper, heavy ink outlines, hard offset shadows, punchy tomato/mustard/teal.
+ * All colors are oklch tokens; components only use semantic utilities.
+ */
+
+@theme inline {
+  --font-display: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-hand: "Caveat", "Bricolage Grotesque", cursive;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-ink: var(--ink);
+  --color-paper: var(--paper);
+  --color-canvas: var(--canvas);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --shadow-sticker: 4px 4px 0 0 var(--ink);
+  --shadow-sticker-sm: 2px 2px 0 0 var(--ink);
+  --shadow-sticker-lg: 7px 7px 0 0 var(--ink);
+
+  --animate-wobble: wobble 2.4s ease-in-out infinite;
+  --animate-pop: pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  --animate-float: float 4s ease-in-out infinite;
+}
+
+:root {
+  --radius: 0.875rem;
+  --paper: oklch(0.965 0.022 86);
+  --ink: oklch(0.22 0.02 60);
+  --canvas: oklch(1 0 0);
+
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: oklch(0.993 0.008 90);
+  --card-foreground: var(--ink);
+  --popover: oklch(0.993 0.008 90);
+  --popover-foreground: var(--ink);
+  --primary: oklch(0.64 0.2 32);
+  --primary-foreground: oklch(0.99 0.01 90);
+  --secondary: oklch(0.86 0.15 88);
+  --secondary-foreground: var(--ink);
+  --muted: oklch(0.925 0.025 86);
+  --muted-foreground: oklch(0.47 0.03 65);
+  --accent: oklch(0.7 0.11 190);
+  --accent-foreground: oklch(0.99 0.01 90);
+  --success: oklch(0.68 0.15 150);
+  --success-foreground: var(--ink);
+  --destructive: oklch(0.58 0.22 25);
+  --destructive-foreground: oklch(0.99 0.01 90);
+  --border: var(--ink);
+  --input: var(--ink);
+  --ring: oklch(0.64 0.2 32);
+  --chart-1: oklch(0.64 0.2 32);
+  --chart-2: oklch(0.7 0.11 190);
+  --chart-3: oklch(0.86 0.15 88);
+  --chart-4: oklch(0.6 0.15 300);
+  --chart-5: oklch(0.68 0.15 150);
+  --sidebar: var(--card);
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--muted);
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: var(--ink);
+  --sidebar-ring: var(--ring);
+
+  --paper-dots: radial-gradient(color-mix(in oklab, var(--ink) 14%, transparent) 1px, transparent 1.5px);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  body {
+    background-color: var(--color-background);
+    background-image: var(--paper-dots);
+    background-size: 22px 22px;
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
+}
+
+@utility sticker {
+  background-color: var(--card);
+  border: 2.5px solid var(--ink);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sticker);
+}
+
+@utility sticker-sm {
+  border: 2px solid var(--ink);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sticker-sm);
+}
+
+@utility ink-outline {
+  border: 2.5px solid var(--ink);
+}
+
+@utility tilt-l {
+  rotate: -1.5deg;
+}
+
+@utility tilt-r {
+  rotate: 1.5deg;
+}
+
+@utility canvas-surface {
+  background-color: var(--canvas);
+  touch-action: none;
+  image-rendering: auto;
+}
+
+@keyframes wobble {
+  0%,
+  100% {
+    rotate: -2deg;
+  }
+  50% {
+    rotate: 2deg;
+  }
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    scale: 0.8;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+@keyframes float {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 0 -6px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+  }
+}
