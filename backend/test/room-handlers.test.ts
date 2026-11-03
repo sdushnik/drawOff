@@ -497,6 +497,24 @@ test("host lobby controls are enforced server-side and broadcast to every connec
       response: {},
     });
     await Promise.all([hostStarted, thirdStarted, fourthStarted]);
+    const firstRound = {
+      judgeId: host.playerId,
+      artistIds: [third.playerId, fourth.playerId],
+      order: [host.playerId, third.playerId, fourth.playerId],
+    };
+    for (const [view, playerId] of [
+      [hostViews.at(-1), host.playerId],
+      [thirdViews.at(-1), third.playerId],
+      [fourthViews.at(-1), fourth.playerId],
+    ] as const) {
+      assert.ok(view);
+      assert.equal(view.match?.roundIndex, 0);
+      assert.equal(view.match?.totalRounds, 9);
+      assert.deepEqual(view.match?.order, firstRound.order);
+      assert.equal(view.match?.judgeId, firstRound.judgeId);
+      assert.deepEqual(view.match?.artistIds, firstRound.artistIds);
+      assert.equal(view.role, playerId === firstRound.judgeId ? "judge" : "artist");
+    }
 
     const cycleAfterStart = await request(hostSocket, "match:set-cycles", {
       session: host,

@@ -47,7 +47,19 @@ export interface RoomSnapshot {
   readonly hostId: string;
   readonly players: readonly RoomPlayer[];
   readonly matchInProgress: boolean;
+  readonly matchSchedule: MatchSchedule | null;
   readonly expiresAt: number;
+}
+
+export interface MatchSchedule {
+  readonly order: readonly string[];
+  readonly cycles: Cycles;
+  readonly totalRounds: number;
+}
+
+export interface MatchRoundAssignment {
+  readonly judgeId: string;
+  readonly artistIds: readonly string[];
 }
 
 export interface RoomServiceOptions {
@@ -67,7 +79,27 @@ interface RoomRecord {
   players: RoomPlayerRecord[];
   matchInProgress: boolean;
   cycles: Cycles;
+  matchSchedule: MatchSchedule | null;
   expiresAt: number;
+}
+
+export function getMatchRoundAssignment(
+  schedule: MatchSchedule,
+  roundIndex: number,
+): MatchRoundAssignment {
+  if (
+    !Number.isInteger(roundIndex) ||
+    roundIndex < 0 ||
+    roundIndex >= schedule.totalRounds ||
+    schedule.order.length === 0
+  ) {
+    throw new RangeError("roundIndex must identify a round in the match schedule.");
+  }
+  const judgeId = schedule.order[roundIndex % schedule.order.length]!;
+  return {
+    judgeId,
+    artistIds: schedule.order.filter((playerId) => playerId !== judgeId),
+  };
 }
 
 function generateCryptographicRoomCode(): string {
@@ -148,6 +180,7 @@ export class RoomService {
       players: [player],
       matchInProgress: false,
       cycles: 1,
+      matchSchedule: null,
       expiresAt,
     });
 
@@ -311,32 +344,58 @@ export class RoomService {
     if (room.matchInProgress) {
       throw new RoomServiceError("WRONG_PHASE", "The match has already started.");
     }
-    const connectedPlayers = room.players.filter((candidate) => candidate.connected).length;
-    if (connectedPlayers < 3) {
+    const order = room.players
+      .filter((candidate) => candidate.connected)
+      .map((candidate) => candidate.id);
+    if (order.length < 3) {
       throw new RoomServiceError(
         "NOT_ENOUGH_PLAYERS",
         "At least 3 connected players are needed to start.",
       );
     }
+    room.matchSchedule = {
+      order,
+      cycles: room.cycles,
+      totalRounds: order.length * room.cycles,
+    };
     room.matchInProgress = true;
   }
 
   getLobbyView(session: Session): PlayerView {
     const { room, player } = this.authenticate(session);
+    const schedule = room.matchSchedule;
+    const isMatchPlayer = schedule?.order.includes(player.id) ?? false;
+    const firstRound = schedule && isMatchPlayer
+      ? getMatchRoundAssignment(schedule, 0)
+      : null;
     return playerViewSchema.parse({
       roomCode: room.code,
       serverNow: this.readClock(),
       me: this.toPlayerSummary(player),
       players: room.players.map((roomPlayer) => this.toPlayerSummary(roomPlayer)),
       hostId: room.hostId,
-      cycles: room.cycles,
+      cycles: schedule?.cycles ?? room.cycles,
       matchStarted: room.matchInProgress,
       phase: "LOBBY",
       deadline: null,
       pause: null,
       notice: null,
-      match: null,
-      role: null,
+      match: schedule && firstRound
+        ? {
+            roundIndex: 0,
+            totalRounds: schedule.totalRounds,
+            cycle: 1,
+            judgeId: firstRound.judgeId,
+            artistIds: [...firstRound.artistIds],
+            order: [...schedule.order],
+            scores: Object.fromEntries(schedule.order.map((playerId) => [playerId, 0])),
+          }
+        : null,
+      role: firstRound
+        ? firstRound.judgeId === player.id
+          ? "judge"
+          : "artist"
+        : null,
       prompt: null,
       suggestions: null,
       myCanvas: null,
@@ -429,6 +488,13 @@ export class RoomService {
         connected,
       })),
       matchInProgress: room.matchInProgress,
+      matchSchedule: room.matchSchedule
+        ? {
+            order: [...room.matchSchedule.order],
+            cycles: room.matchSchedule.cycles,
+            totalRounds: room.matchSchedule.totalRounds,
+          }
+        : null,
       expiresAt: room.expiresAt,
     };
   }

@@ -61,7 +61,15 @@ connected. Cycle, kick, and start requests are authenticated and enforced by
 the room service; successful changes are broadcast as personalized
 `state:update` events. A started room is marked in the lobby view so controls
 are removed or disabled, and later lobby mutations are rejected. There is no
-fixed player maximum.
+fixed player maximum. Starting snapshots the connected players in their
+current room order and fixes the match at exactly `roster size × cycle count`
+rounds. For zero-based round `r`, `roster[r % roster size]` is the Judge and
+every other frozen roster member is an Artist. Disconnects do not change that
+schedule, and the server does not silently substitute or reorder players.
+Authorized roster members receive the frozen `match.order`, total round count,
+current round assignment, and their role in their personalized view. This
+initial scheduling does not advance match phases or deadlines; gameplay phase
+transitions are handled separately.
 
 Successful requests are acknowledged only to the requesting socket using the
 shared response schemas. Failures emit the shared `error` payload to that
