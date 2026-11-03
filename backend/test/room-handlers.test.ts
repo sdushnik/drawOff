@@ -376,6 +376,158 @@ test("live room rosters cover create, join, leave, disconnect, reconnect, and ro
   }
 });
 
+test("host lobby controls are enforced server-side and broadcast to every connected member", async () => {
+  const service = new RoomService();
+  const { app, io } = createServer({ logger: false, roomService: service });
+  const address = await app.listen({ host: "127.0.0.1", port: 0 });
+  const hostSocket = await connect(address);
+  const guestSocket = await connect(address);
+  const thirdSocket = await connect(address);
+  const fourthSocket = await connect(address);
+  const hostViews: PlayerView[] = [];
+  const guestViews: PlayerView[] = [];
+  const thirdViews: PlayerView[] = [];
+  const fourthViews: PlayerView[] = [];
+  hostSocket.on("state:update", (view) => hostViews.push(view));
+  guestSocket.on("state:update", (view) => guestViews.push(view));
+  thirdSocket.on("state:update", (view) => thirdViews.push(view));
+  fourthSocket.on("state:update", (view) => fourthViews.push(view));
+
+  try {
+    const hostResult = await request(hostSocket, "room:create", { name: "Host" });
+    assert.equal(hostResult.ok, true);
+    if (!hostResult.ok) return;
+    const host = hostResult.response.session;
+
+    const guestHostUpdate = waitForRoster(hostSocket, (view) => view.players.length === 2);
+    const guestResult = await request(guestSocket, "room:join", {
+      code: host.roomCode,
+      name: "Guest",
+    });
+    assert.equal(guestResult.ok, true);
+    if (!guestResult.ok) return;
+    const guest = guestResult.response.session;
+    await guestHostUpdate;
+
+    const thirdHostUpdate = waitForRoster(hostSocket, (view) => view.players.length === 3);
+    const thirdGuestUpdate = waitForRoster(guestSocket, (view) => view.players.length === 3);
+    const thirdResult = await request(thirdSocket, "room:join", {
+      code: host.roomCode,
+      name: "Third",
+    });
+    assert.equal(thirdResult.ok, true);
+    if (!thirdResult.ok) return;
+    const third = thirdResult.response.session;
+    await Promise.all([thirdHostUpdate, thirdGuestUpdate]);
+    assert.equal(hostViews.at(-1)?.cycles, 1);
+    assert.equal(guestViews.at(-1)?.cycles, 1);
+
+    for (const cycles of [1, 2, 3] as const) {
+      const hostUpdate = waitForRoster(hostSocket, (view) => view.cycles === cycles);
+      const guestUpdate = waitForRoster(guestSocket, (view) => view.cycles === cycles);
+      const thirdUpdate = waitForRoster(thirdSocket, (view) => view.cycles === cycles);
+      const changed = await request(hostSocket, "match:set-cycles", { session: host, cycles });
+      assert.deepEqual(changed, { ok: true, response: {} });
+      await Promise.all([hostUpdate, guestUpdate, thirdUpdate]);
+      assert.equal(guestViews.at(-1)?.cycles, cycles);
+      assert.equal(thirdViews.at(-1)?.cycles, cycles);
+    }
+
+    const invalidCycles = await request(hostSocket, "match:set-cycles", {
+      session: host,
+      cycles: 4,
+    } as ClientToServerPayloads["match:set-cycles"]);
+    assert.equal(invalidCycles.ok, false);
+    if (!invalidCycles.ok) assert.equal(invalidCycles.error.code, "INVALID_INPUT");
+    const deniedCycles = await request(guestSocket, "match:set-cycles", {
+      session: guest,
+      cycles: 2,
+    });
+    assert.equal(deniedCycles.ok, false);
+    if (!deniedCycles.ok) assert.equal(deniedCycles.error.code, "FORBIDDEN");
+    assert.equal(service.getLobbyView(host).cycles, 3);
+
+    const guestKickHostUpdate = waitForRoster(
+      hostSocket,
+      (view) => !view.players.some(({ id }) => id === guest.playerId),
+    );
+    const thirdKickUpdate = waitForRoster(
+      thirdSocket,
+      (view) => !view.players.some(({ id }) => id === guest.playerId),
+    );
+    assert.deepEqual(
+      await request(hostSocket, "player:kick", { session: host, playerId: guest.playerId }),
+      { ok: true, response: {} },
+    );
+    await Promise.all([guestKickHostUpdate, thirdKickUpdate]);
+    const revoked = await request(guestSocket, "session:resume", { session: guest });
+    assert.equal(revoked.ok, false);
+    if (!revoked.ok) assert.equal(revoked.error.code, "UNAUTHORIZED");
+
+    const hostStartWithoutEnoughPlayers = await request(hostSocket, "match:start", {
+      session: host,
+    });
+    assert.equal(hostStartWithoutEnoughPlayers.ok, false);
+    if (!hostStartWithoutEnoughPlayers.ok) {
+      assert.equal(hostStartWithoutEnoughPlayers.error.code, "NOT_ENOUGH_PLAYERS");
+    }
+    assert.equal(service.getLobbyView(host).matchStarted, false);
+
+    const fourthHostUpdate = waitForRoster(hostSocket, (view) => view.players.length === 3);
+    const fourthThirdUpdate = waitForRoster(thirdSocket, (view) => view.players.length === 3);
+    const fourthResult = await request(fourthSocket, "room:join", {
+      code: host.roomCode,
+      name: "Fourth",
+    });
+    assert.equal(fourthResult.ok, true);
+    if (!fourthResult.ok) return;
+    const fourth = fourthResult.response.session;
+    await Promise.all([fourthHostUpdate, fourthThirdUpdate]);
+
+    const guestStart = await request(thirdSocket, "match:start", { session: third });
+    assert.equal(guestStart.ok, false);
+    if (!guestStart.ok) assert.equal(guestStart.error.code, "FORBIDDEN");
+    assert.equal(service.getLobbyView(host).matchStarted, false);
+
+    const hostStarted = waitForRoster(hostSocket, (view) => view.matchStarted);
+    const thirdStarted = waitForRoster(thirdSocket, (view) => view.matchStarted);
+    const fourthStarted = waitForRoster(fourthSocket, (view) => view.matchStarted);
+    assert.deepEqual(await request(hostSocket, "match:start", { session: host }), {
+      ok: true,
+      response: {},
+    });
+    await Promise.all([hostStarted, thirdStarted, fourthStarted]);
+
+    const cycleAfterStart = await request(hostSocket, "match:set-cycles", {
+      session: host,
+      cycles: 2,
+    });
+    assert.equal(cycleAfterStart.ok, false);
+    if (!cycleAfterStart.ok) assert.equal(cycleAfterStart.error.code, "WRONG_PHASE");
+    const kickAfterStart = await request(hostSocket, "player:kick", {
+      session: host,
+      playerId: third.playerId,
+    });
+    assert.equal(kickAfterStart.ok, false);
+    if (!kickAfterStart.ok) assert.equal(kickAfterStart.error.code, "WRONG_PHASE");
+    const duplicateStart = await request(hostSocket, "match:start", { session: host });
+    assert.equal(duplicateStart.ok, false);
+    if (!duplicateStart.ok) assert.equal(duplicateStart.error.code, "WRONG_PHASE");
+    assert.equal(service.getLobbyView(host).cycles, 3);
+    assert.deepEqual(service.getLobbyView(host).players.map(({ id }) => id), [
+      host.playerId,
+      third.playerId,
+      fourth.playerId,
+    ]);
+  } finally {
+    hostSocket.disconnect();
+    guestSocket.disconnect();
+    thirdSocket.disconnect();
+    fourthSocket.disconnect();
+    await new Promise<void>((resolve) => io.close(() => resolve()));
+  }
+});
+
 test("leave and kick requests require valid sessions and revoke the removed player's token", async () => {
   const service = new RoomService();
   const { app, io } = createServer({ logger: false, roomService: service });

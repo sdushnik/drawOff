@@ -171,6 +171,7 @@ export const playerViewSchema = z
     players: z.array(playerSummarySchema),
     hostId: nonEmptyStringSchema,
     cycles: cyclesSchema,
+    matchStarted: z.boolean().default(false),
     phase: phaseSchema,
     deadline: finiteNumberSchema.nullable(),
     pause: z

@@ -12,6 +12,7 @@ import { formatDuration, initials } from "./util";
 export function Lobby({ view, room, onLeave }: { view: PlayerView; room: GameRoom; onLeave: () => void }) {
   const [copied, setCopied] = useState(false);
   const isHost = view.me.isHost;
+  const matchStarted = view.matchStarted || view.phase !== "LOBBY";
   const connected = view.players.filter((p) => p.connected).length;
   const canStart = connected >= MIN_PLAYERS;
   const rounds = totalRounds(connected, view.cycles);
@@ -84,7 +85,7 @@ export function Lobby({ view, room, onLeave }: { view: PlayerView; room: GameRoo
                   <span className="sr-only">Disconnected</span>
                 </span>
               )}
-              {isHost && p.id !== view.me.id && (
+              {isHost && !matchStarted && p.id !== view.me.id && (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -130,7 +131,7 @@ export function Lobby({ view, room, onLeave }: { view: PlayerView; room: GameRoo
                 aria-checked={view.cycles === c}
                 variant="tool"
                 data-active={view.cycles === c}
-                disabled={!isHost}
+                disabled={!isHost || matchStarted}
                 onClick={() => room.act((s, ses) => s.setCycles(ses, c as Cycles))}
                 className="h-12 font-display text-base"
               >
@@ -149,13 +150,15 @@ export function Lobby({ view, room, onLeave }: { view: PlayerView; room: GameRoo
               variant="hero"
               size="xl"
               className="flex-1"
-              disabled={!canStart}
+              disabled={!canStart || matchStarted}
               onClick={() => room.act((s, ses) => s.startMatch(ses))}
             >
-              <Play /> Start match
+              <Play /> {matchStarted ? "Match started" : "Start match"}
             </Button>
           ) : (
-            <div className="sticker flex-1 px-4 py-3 text-center font-semibold">Waiting for the host to start…</div>
+            <div className="sticker flex-1 px-4 py-3 text-center font-semibold">
+              {matchStarted ? "The match has started." : "Waiting for the host to start…"}
+            </div>
           )}
           <Button variant="outline" size="xl" onClick={onLeave}>
             <LogOut /> Leave

@@ -87,6 +87,64 @@ test("joining by bare code or invite link adds any number of guests and returns 
   });
 });
 
+test("lobby controls default to one cycle, accept only 1–3, and start for the host at three connected players", () => {
+  const service = createDeterministicService();
+  const host = service.createRoom("Host");
+  const guest = service.joinRoom(host.roomCode, "Guest");
+  const third = service.joinRoom(host.roomCode, "Third");
+
+  assert.equal(service.getLobbyView(host).cycles, 1);
+  assert.equal(service.getLobbyView(host).matchStarted, false);
+  service.setConnected(host, true);
+  service.setConnected(guest, true);
+  service.setConnected(third, true);
+
+  service.setCycles(host, 2);
+  assert.equal(service.getLobbyView(guest).cycles, 2);
+  service.setCycles(host, 3);
+  assert.equal(service.getLobbyView(third).cycles, 3);
+  service.setCycles(host, 1);
+  assert.equal(service.getLobbyView(host).cycles, 1);
+
+  for (const invalidCycles of [0, 4, 1.5, "2"] as unknown[]) {
+    expectRoomError(
+      () => service.setCycles(host, invalidCycles as 1 | 2 | 3),
+      "INVALID_INPUT",
+    );
+    assert.equal(service.getLobbyView(host).cycles, 1);
+  }
+  expectRoomError(() => service.startMatch(guest), "FORBIDDEN");
+  assert.equal(service.getLobbyView(host).matchStarted, false);
+
+  service.startMatch(host);
+  assert.equal(service.getLobbyView(host).matchStarted, true);
+  expectRoomError(() => service.setCycles(host, 2), "WRONG_PHASE");
+  expectRoomError(() => service.kickPlayer(host, guest.playerId), "WRONG_PHASE");
+  expectRoomError(() => service.startMatch(host), "WRONG_PHASE");
+  assert.equal(service.getLobbyView(host).cycles, 1);
+  assert.deepEqual(
+    service.getLobbyView(host).players.map(({ id }) => id),
+    [host.playerId, guest.playerId, third.playerId],
+  );
+});
+
+test("a start below three connected players leaves the lobby unchanged", () => {
+  const service = createDeterministicService();
+  const host = service.createRoom("Host");
+  const guest = service.joinRoom(host.roomCode, "Guest");
+  const third = service.joinRoom(host.roomCode, "Third");
+  service.setConnected(host, true);
+  service.setConnected(guest, true);
+
+  expectRoomError(() => service.startMatch(host), "NOT_ENOUGH_PLAYERS");
+  assert.equal(service.getLobbyView(host).matchStarted, false);
+  assert.equal(service.getRoom(host.roomCode).players.length, 3);
+
+  service.setConnected(third, true);
+  service.startMatch(host);
+  assert.equal(service.getLobbyView(host).matchStarted, true);
+});
+
 test("display names are trimmed, whitespace-normalized, and validated", () => {
   const service = createDeterministicService();
 

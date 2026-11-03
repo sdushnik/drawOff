@@ -55,6 +55,14 @@ identity and is marked connected again. `state:subscribe` reattaches the
 session and returns the initial view. Room invite URLs use `/room/{code}` and
 the frontend route accepts that link as its join flow.
 
+The host can select exactly 1, 2, or 3 cycles (default 1), kick a player while
+the room is in the lobby, and start only when at least three players are
+connected. Cycle, kick, and start requests are authenticated and enforced by
+the room service; successful changes are broadcast as personalized
+`state:update` events. A started room is marked in the lobby view so controls
+are removed or disabled, and later lobby mutations are rejected. There is no
+fixed player maximum.
+
 Successful requests are acknowledged only to the requesting socket using the
 shared response schemas. Failures emit the shared `error` payload to that
 socket; the server does not log request payloads or include submitted

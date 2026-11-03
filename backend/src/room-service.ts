@@ -8,6 +8,7 @@ import {
 import {
   playerSummarySchema,
   playerViewSchema,
+  cyclesSchema,
   sessionSchema,
   type Cycles,
   type PlayerView,
@@ -296,7 +297,28 @@ export class RoomService {
     if (room.matchInProgress) {
       throw new RoomServiceError("WRONG_PHASE", "Match length can only be changed in the lobby.");
     }
+    if (!cyclesSchema.safeParse(cycles).success) {
+      throw new RoomServiceError("INVALID_INPUT", "Choose 1, 2, or 3 cycles.");
+    }
     room.cycles = cycles;
+  }
+
+  startMatch(session: Session): void {
+    const { room, player } = this.authenticate(session);
+    if (player.id !== room.hostId) {
+      throw new RoomServiceError("FORBIDDEN", "Only the host can start the match.");
+    }
+    if (room.matchInProgress) {
+      throw new RoomServiceError("WRONG_PHASE", "The match has already started.");
+    }
+    const connectedPlayers = room.players.filter((candidate) => candidate.connected).length;
+    if (connectedPlayers < 3) {
+      throw new RoomServiceError(
+        "NOT_ENOUGH_PLAYERS",
+        "At least 3 connected players are needed to start.",
+      );
+    }
+    room.matchInProgress = true;
   }
 
   getLobbyView(session: Session): PlayerView {
@@ -308,6 +330,7 @@ export class RoomService {
       players: room.players.map((roomPlayer) => this.toPlayerSummary(roomPlayer)),
       hostId: room.hostId,
       cycles: room.cycles,
+      matchStarted: room.matchInProgress,
       phase: "LOBBY",
       deadline: null,
       pause: null,

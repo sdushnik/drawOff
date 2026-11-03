@@ -304,6 +304,22 @@ function registerRoomHandlers(io: SocketIOServer, roomService: RoomService): voi
         },
       );
     });
+
+    socket.on("match:start", (payload, acknowledge) => {
+      handleSocketRequest(
+        socket,
+        payload,
+        clientToServerPayloadSchemas["match:start"],
+        clientToServerResponseSchemas["match:start"],
+        acknowledge,
+        ({ session }) => {
+          assertAttached(socket, session);
+          roomService.startMatch(session);
+          publishRoom(session.roomCode);
+          return {};
+        },
+      );
+    });
   });
 }
 

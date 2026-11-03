@@ -113,7 +113,9 @@ export function createSocketGameService(serverUrl: string): GameService {
       await request("match:set-cycles", { session, cycles });
     },
     addDemoPlayer: unsupported,
-    startMatch: unsupported,
+    startMatch: async (session) => {
+      await request("match:start", { session });
+    },
     selectPrompt: unsupported,
     sendDrawOps: async (_session: Session, _ops: DrawOp[]) => unsupported(),
     submitCanvas: unsupported,
