@@ -33,7 +33,7 @@ export function JudgeLiveView({ canvases }: { canvases: LiveCanvas[] }) {
               onClick={() => setFocus(c.label)}
               aria-current={c.label === focus}
               className={cn(
-                "sticker-sm w-28 shrink-0 cursor-pointer overflow-hidden bg-card text-left transition-transform hover:-translate-y-0.5",
+                "sticker-sm w-28 shrink-0 cursor-pointer overflow-hidden bg-card text-left transition-transform hover:-translate-y-0.5 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink",
                 c.label === focus && "ring-2 ring-primary ring-offset-2 ring-offset-background",
               )}
             >
@@ -54,7 +54,7 @@ export function JudgeLiveView({ canvases }: { canvases: LiveCanvas[] }) {
           type="button"
           onClick={() => setFocus(c.label)}
           className={cn(
-            "sticker group cursor-pointer overflow-hidden text-left transition-transform hover:-translate-y-1",
+            "sticker group cursor-pointer overflow-hidden text-left transition-transform hover:-translate-y-1 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink",
             i % 2 === 0 ? "hover:-rotate-1" : "hover:rotate-1",
           )}
         >
@@ -75,7 +75,7 @@ export function JudgeLiveView({ canvases }: { canvases: LiveCanvas[] }) {
 function LiveBadge() {
   return (
     <span className="inline-flex items-center gap-1 rounded-full border-2 border-ink bg-primary px-2 py-0.5 text-xs font-bold text-primary-foreground">
-      <span className="size-1.5 animate-pulse rounded-full bg-primary-foreground" /> LIVE
+      <span aria-hidden="true" className="size-1.5 animate-pulse rounded-full bg-primary-foreground" /> LIVE
     </span>
   );
 }

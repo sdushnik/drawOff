@@ -3,7 +3,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { playerViewSchema, type PlayerView } from "@drawoff/contracts";
 import { emptyCanvas } from "@/game/canvasOps";
 import type { GameRoom } from "@/hooks/useGameRoom";
-import { RoleReveal, WordSelection } from "./PhaseScreens";
+import { PauseOverlay, RoleReveal, WordSelection } from "./PhaseScreens";
 import { RoomScreen } from "./RoomScreen";
 
 vi.mock("@tanstack/react-router", () => ({
@@ -78,6 +78,13 @@ describe("role reveal and prompt selection", () => {
     expect(roles).toHaveClass("w-full", "flex-wrap");
   });
 
+  it("announces a server-owned phase notice politely", () => {
+    render(<RoleReveal view={makeView({ notice: "The match recovered and will resume." })} />);
+
+    expect(screen.getByRole("status")).toHaveTextContent("The match recovered and will resume.");
+    expect(screen.getByRole("status")).toHaveAttribute("aria-live", "polite");
+  });
+
   it("gives only the Judge prompt choices and labeled custom-prompt controls before confirmation", () => {
     const room = makeRoom();
     render(
@@ -146,6 +153,22 @@ describe("role reveal and prompt selection", () => {
     expect(error).toHaveTextContent("Enter a word or phrase.");
     expect(input).toHaveAttribute("aria-invalid", "true");
     expect(input).toHaveAttribute("aria-describedby", error.id);
+  });
+});
+
+describe("pause accessibility", () => {
+  it("presents a modal pause state without creating a per-second live region", () => {
+    render(
+      <PauseOverlay
+        view={makeView({ pause: { playerName: "Alex", until: Date.now() + 30_000 } })}
+        clockOffset={0}
+      />,
+    );
+
+    const dialog = screen.getByRole("alertdialog", { name: "Game paused" });
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(dialog).toHaveTextContent(/Waiting for Alex to reconnect/);
+    expect(dialog).not.toHaveAttribute("aria-live");
   });
 });
 

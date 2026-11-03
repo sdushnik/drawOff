@@ -32,8 +32,9 @@ export function DrawingCanvas({
       ref={ref}
       width={CANVAS_WIDTH}
       height={CANVAS_HEIGHT}
-      role="img"
+      role={ariaLabel ? "img" : undefined}
       aria-label={ariaLabel}
+      aria-hidden={ariaLabel ? undefined : true}
       className={cn("canvas-surface block aspect-[4/3] h-auto w-full", className)}
     />
   );

@@ -23,7 +23,11 @@ export function RoleReveal({ view }: { view: PlayerView }) {
       <p className="font-display text-lg font-bold">
         Round {m.roundIndex + 1} of {m.totalRounds} · Cycle {m.cycle}
       </p>
-      {view.notice && <p className="sticker-sm bg-secondary px-3 py-1 text-sm font-semibold">{view.notice}</p>}
+      {view.notice && (
+        <p className="sticker-sm bg-secondary px-3 py-1 text-sm font-semibold" role="status" aria-live="polite">
+          {view.notice}
+        </p>
+      )}
       <div className={cn("sticker animate-pop w-full p-8", judge ? "tilt-l bg-accent text-accent-foreground" : "tilt-r bg-primary text-primary-foreground")}>
         {judge ? <Gavel className="mx-auto size-14" /> : <Palette className="mx-auto size-14" />}
         <h2 className="mt-3 text-5xl font-extrabold">{judge ? "You're the Judge" : "You're an Artist"}</h2>
@@ -57,7 +61,9 @@ export function WordSelection({ view, room }: { view: PlayerView; room: GameRoom
       <Center>
         <Hourglass aria-hidden="true" className="size-14 animate-wobble" />
         <h2 className="text-4xl font-extrabold">{nameOf(view, view.match!.judgeId)} is picking a word…</h2>
-        <p className="text-muted-foreground">Waiting for the Judge to confirm the prompt. Warm up those wrists.</p>
+        <p className="text-muted-foreground" role="status" aria-live="polite">
+          Waiting for the Judge to confirm the prompt. Warm up those wrists.
+        </p>
       </Center>
     );
   }
@@ -127,7 +133,9 @@ export function WaitingForJudge({ view }: { view: PlayerView }) {
     <Center>
       <Gavel className="size-14 animate-wobble" />
       <h2 className="text-4xl font-extrabold">{nameOf(view, view.match!.judgeId)} is judging…</h2>
-      <p className="text-muted-foreground">Drawings are anonymous until the scores are locked in.</p>
+      <p className="text-muted-foreground" role="status" aria-live="polite">
+        Drawings are anonymous until the scores are locked in.
+      </p>
       {view.myCanvas && (
         <div className="sticker tilt-l w-full max-w-md overflow-hidden">
           <DrawingCanvas canvas={view.myCanvas.canvas} ariaLabel="Your submitted drawing" />
@@ -257,7 +265,12 @@ export function PauseOverlay({ view, clockOffset }: { view: PlayerView; clockOff
   const left = useCountdown(view.pause?.until ?? null, clockOffset);
   if (!view.pause) return null;
   return (
-    <div role="alertdialog" aria-label="Game paused" className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4 backdrop-blur-sm">
+    <div
+      role="alertdialog"
+      aria-label="Game paused"
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4 backdrop-blur-sm"
+    >
       <div className="sticker animate-pop max-w-sm p-6 text-center">
         <WifiOff className="mx-auto size-10" />
         <h2 className="mt-2 text-2xl font-extrabold">Paused</h2>

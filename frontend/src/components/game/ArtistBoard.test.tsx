@@ -104,6 +104,9 @@ describe("ArtistBoard", () => {
     const fill = screen.getByRole("button", { name: "Bucket fill" });
     expect(pen).toHaveAttribute("aria-pressed", "true");
 
+    const firstColor = screen.getByRole("button", { name: "Color #1f1b16" });
+    expect(firstColor).toHaveClass("size-7", "focus-visible:outline-3");
+
     fireEvent.click(screen.getByRole("button", { name: "Color #e5484d" }));
     fireEvent.click(screen.getByRole("button", { name: "Brush 16px" }));
     fireEvent.click(eraser);
@@ -136,6 +139,32 @@ describe("ArtistBoard", () => {
       expect.objectContaining({ type: "undo" }),
       expect.objectContaining({ type: "clear" }),
     ]);
+  });
+
+  it("announces when drawing becomes locked without relying on its visual overlay", () => {
+    const { rerender } = render(
+      <ArtistBoard
+        initial={emptyCanvas()}
+        locked={false}
+        timeUp={false}
+        onSend={vi.fn().mockResolvedValue(undefined)}
+        onSubmit={vi.fn().mockResolvedValue(true)}
+      />,
+    );
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    rerender(
+      <ArtistBoard
+        initial={emptyCanvas()}
+        locked
+        timeUp={false}
+        onSend={vi.fn().mockResolvedValue(undefined)}
+        onSubmit={vi.fn().mockResolvedValue(true)}
+      />,
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("Submitted!");
+    expect(screen.getByRole("status")).toHaveAttribute("aria-live", "polite");
   });
 
   it.each([

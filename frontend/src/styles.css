@@ -83,13 +83,15 @@
   --popover: oklch(0.993 0.008 90);
   --popover-foreground: var(--ink);
   --primary: oklch(0.64 0.2 32);
-  --primary-foreground: oklch(0.99 0.01 90);
+  /* Ink keeps normal-sized copy on tomato above the WCAG AA 4.5:1 threshold. */
+  --primary-foreground: var(--ink);
   --secondary: oklch(0.86 0.15 88);
   --secondary-foreground: var(--ink);
   --muted: oklch(0.925 0.025 86);
   --muted-foreground: oklch(0.47 0.03 65);
   --accent: oklch(0.7 0.11 190);
-  --accent-foreground: oklch(0.99 0.01 90);
+  /* Ink on teal is 6.8:1; the previous paper foreground was only 2.5:1. */
+  --accent-foreground: var(--ink);
   --success: oklch(0.68 0.15 150);
   --success-foreground: var(--ink);
   --destructive: oklch(0.58 0.22 25);
@@ -133,6 +135,11 @@
   h3 {
     font-family: var(--font-display);
     letter-spacing: -0.02em;
+  }
+
+  :where(a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])):focus-visible {
+    outline: 3px solid var(--ink);
+    outline-offset: 3px;
   }
 }
 
@@ -201,5 +208,7 @@
 @media (prefers-reduced-motion: reduce) {
   * {
     animation: none !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
   }
 }

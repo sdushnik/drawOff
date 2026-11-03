@@ -55,16 +55,19 @@ describe("JudgeLiveView", () => {
 
     const artistTwoCard = screen.getByRole("button", { name: /Artist 2/ });
     expect(artistTwoCard).toHaveAttribute("type", "button");
+    expect(artistTwoCard).toHaveClass("focus-visible:outline-3");
     artistTwoCard.focus();
     expect(artistTwoCard).toHaveFocus();
     fireEvent.click(artistTwoCard);
 
     expect(screen.getByRole("img", { name: "Artist 2, live" })).toBeInTheDocument();
+    expect(screen.getAllByRole("img")).toHaveLength(1);
     expect(screen.getByRole("button", { name: /Grid view/ })).toBeInTheDocument();
     expect(screen.getByText("Done")).toBeInTheDocument();
 
     const artistOneSwitch = screen.getByRole("button", { name: "Artist 1" });
     expect(artistOneSwitch).toHaveAttribute("type", "button");
+    expect(artistOneSwitch).toHaveClass("focus-visible:outline-3");
     artistOneSwitch.focus();
     expect(artistOneSwitch).toHaveFocus();
     fireEvent.click(artistOneSwitch);

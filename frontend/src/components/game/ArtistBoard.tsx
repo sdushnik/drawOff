@@ -202,7 +202,11 @@ export function ArtistBoard({ initial, locked, timeUp, onSend, onSubmit }: Props
         </div>
         {disabled && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <span className="sticker animate-pop inline-flex items-center gap-2 bg-secondary px-4 py-2 font-display text-lg font-bold">
+            <span
+              className="sticker animate-pop inline-flex items-center gap-2 bg-secondary px-4 py-2 font-display text-lg font-bold"
+              role="status"
+              aria-live="polite"
+            >
               <Lock className="size-5" /> {locked || submitted ? "Submitted!" : "Pencils down!"}
             </span>
           </div>
@@ -247,7 +251,7 @@ export function ArtistBoard({ initial, locked, timeUp, onSend, onSubmit }: Props
                 if (tool === "eraser") setTool("pen");
               }}
               className={cn(
-                "size-7 cursor-pointer rounded-full border-2 border-ink transition-transform hover:scale-110 disabled:cursor-not-allowed",
+                "size-7 cursor-pointer rounded-full border-2 border-ink transition-transform hover:scale-110 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed",
                 color === c && "ring-2 ring-ink ring-offset-2 ring-offset-card scale-110",
               )}
               style={{ backgroundColor: c }}

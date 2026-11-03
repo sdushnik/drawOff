@@ -83,7 +83,7 @@ export function JudgingGallery({ prompt, gallery, overtime, onSubmit }: Props) {
               <div className="flex flex-col gap-2 border-t-[2.5px] border-ink p-3">
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="text-lg font-bold">{g.label}</h3>
-                  {!valid && <span className="text-xs font-bold uppercase text-primary">Unrated</span>}
+                  {!valid && <span className="text-xs font-bold uppercase text-foreground">Unrated</span>}
                 </div>
                 <div className="flex items-center gap-3">
                   <Slider
