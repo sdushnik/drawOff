@@ -295,6 +295,10 @@ export const serviceErrorCodeSchema = z.enum([
   "PAUSED",
   "DEADLINE_PASSED",
   "NETWORK",
+  "REQUEST_FAILED",
+  "NOT_FOUND",
+  "SERVICE_UNAVAILABLE",
+  "INTERNAL_SERVER_ERROR",
 ]);
 export type ServiceErrorCode = z.infer<typeof serviceErrorCodeSchema>;
 
@@ -302,6 +306,9 @@ export const serviceErrorPayloadSchema = z
   .object({ code: serviceErrorCodeSchema, message: z.string() })
   .strict();
 export type ServiceErrorPayload = z.infer<typeof serviceErrorPayloadSchema>;
+
+export const healthResponseSchema = z.object({ status: z.literal("ready") }).strict();
+export type HealthResponse = z.infer<typeof healthResponseSchema>;
 
 const sessionPayload = z.object({ session: sessionSchema }).strict();
 const namePayload = z.object({ name: playerNameSchema }).strict();
