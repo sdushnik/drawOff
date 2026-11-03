@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { sessionSchema } from "@drawoff/contracts";
 import {
@@ -30,7 +31,6 @@ function createDeterministicService(
   } = {},
 ) {
   let nextId = 0;
-  let nextToken = 0;
   const codes = options.codes ?? ["ABC123"];
   let nextCode = 0;
   return new RoomService({
@@ -38,7 +38,6 @@ function createDeterministicService(
     idleTtlMs: options.idleTtlMs,
     generateRoomCode: () => codes[Math.min(nextCode++, codes.length - 1)]!,
     generateId: () => `player-${++nextId}`,
-    generateToken: () => `session-token-${++nextToken}`,
   });
 }
 
@@ -47,11 +46,9 @@ test("room creation normalizes the host name and returns a typed session", () =>
 
   const session = service.createRoom("  Ada   Artist  ");
 
-  assert.deepEqual(session, {
-    roomCode: "ABC123",
-    playerId: "player-1",
-    token: "session-token-1",
-  });
+  assert.equal(session.roomCode, "ABC123");
+  assert.equal(session.playerId, "player-1");
+  assert.match(session.token, /^[A-Za-z0-9_-]{43}$/);
   assert.equal(sessionSchema.safeParse(session).success, true);
   assert.deepEqual(service.getRoom(session.roomCode).players, [
     { id: "player-1", name: "Ada Artist", isHost: true },
@@ -202,9 +199,146 @@ test("idle TTL must be positive and finite", () => {
 });
 
 test("default sessions use cryptographic credentials", () => {
-  const session = new RoomService().createRoom("Host");
+  const service = new RoomService();
+  const session = service.createRoom("Host");
+  const guest = service.joinRoom(session.roomCode, "Guest");
 
   assert.equal(sessionSchema.safeParse(session).success, true);
   assert.match(session.playerId, /^[0-9a-f-]{36}$/i);
   assert.match(session.token, /^[A-Za-z0-9_-]{43}$/);
+  assert.notEqual(session.token, guest.token);
+  assert.equal(JSON.stringify(service.getRoom(session.roomCode)).includes(session.token), false);
+  assert.equal(JSON.stringify(service.getRoom(session.roomCode)).includes(guest.token), false);
+
+  const internal = service as unknown as {
+    rooms: Map<string, { players: Array<{ sessionTokenHash: Buffer }> }>;
+  };
+  const storedPlayers = internal.rooms.get(session.roomCode)!.players;
+  assert.deepEqual(
+    storedPlayers.map(({ sessionTokenHash }) => sessionTokenHash),
+    [session.token, guest.token].map((token) =>
+      createHash("sha256").update(token, "utf8").digest(),
+    ),
+  );
+  assert.equal(JSON.stringify(storedPlayers).includes(session.token), false);
+  assert.equal(JSON.stringify(storedPlayers).includes(guest.token), false);
+});
+
+test("valid sessions resume only in their room and for their player", () => {
+  const service = createDeterministicService({ codes: ["ABC123", "XYZ789"] });
+  const host = service.createRoom("Host");
+  const guest = service.joinRoom(host.roomCode, "Guest");
+  const otherRoom = service.createRoom("Other");
+
+  assert.deepEqual(service.resumeSession({ ...guest, roomCode: "abc123" }), guest);
+  expectRoomError(() => service.resumeSession({ ...guest, roomCode: otherRoom.roomCode }), "UNAUTHORIZED");
+  expectRoomError(
+    () => service.resumeSession({ ...guest, playerId: host.playerId }),
+    "UNAUTHORIZED",
+  );
+  expectRoomError(
+    () => service.resumeSession({ ...guest, token: "not-the-session-token" }),
+    "UNAUTHORIZED",
+  );
+  expectRoomError(
+    () => service.resumeSession({ ...guest, playerId: "forged-player-id" }),
+    "UNAUTHORIZED",
+  );
+  const attemptedToken = "private-invalid-token";
+  const invalidTokenError = expectRoomError(
+    () => service.resumeSession({ ...guest, token: attemptedToken }),
+    "UNAUTHORIZED",
+  );
+  assert.equal(invalidTokenError.message.includes(attemptedToken), false);
+  expectRoomError(() => service.resumeSession({ ...guest, roomCode: "invalid" }), "UNAUTHORIZED");
+});
+
+test("session credentials follow room idle expiry and successful joins renew the room window", () => {
+  let now = 0;
+  const service = createDeterministicService({
+    now: () => now,
+    idleTtlMs: 100,
+  });
+  const host = service.createRoom("Host");
+
+  now = 50;
+  const guest = service.joinRoom(host.roomCode, "Guest");
+  now = 100;
+  assert.deepEqual(service.resumeSession(host), host);
+  assert.deepEqual(service.resumeSession(guest), guest);
+  now = 150;
+  expectRoomError(() => service.resumeSession(host), "ROOM_NOT_FOUND");
+  expectRoomError(() => service.resumeSession(guest), "ROOM_NOT_FOUND");
+});
+
+test("room expiry rejects existing session credentials and removes the room", () => {
+  let now = 0;
+  const service = createDeterministicService({
+    now: () => now,
+    idleTtlMs: 100,
+  });
+  const session = service.createRoom("Host");
+
+  now = 100;
+  expectRoomError(() => service.resumeSession(session), "ROOM_NOT_FOUND");
+  expectRoomError(() => service.resumeSession(session), "ROOM_NOT_FOUND");
+});
+
+test("leave revokes the player's session and removes the room when empty", () => {
+  const service = createDeterministicService();
+  const host = service.createRoom("Host");
+  const guest = service.joinRoom(host.roomCode, "Guest");
+
+  service.leaveRoom(guest);
+  expectRoomError(() => service.resumeSession(guest), "UNAUTHORIZED");
+  assert.equal(service.getRoom(host.roomCode).players.some(({ id }) => id === guest.playerId), false);
+
+  service.leaveRoom(host);
+  expectRoomError(() => service.getRoom(host.roomCode), "ROOM_NOT_FOUND");
+  expectRoomError(() => service.resumeSession(host), "ROOM_NOT_FOUND");
+});
+
+test("a host leaving revokes their session and promotes the next player", () => {
+  const service = createDeterministicService();
+  const host = service.createRoom("Host");
+  const guest = service.joinRoom(host.roomCode, "Guest");
+
+  service.leaveRoom(host);
+
+  const room = service.getRoom(host.roomCode);
+  assert.equal(room.hostId, guest.playerId);
+  assert.deepEqual(room.players, [{ id: guest.playerId, name: "Guest", isHost: true }]);
+  expectRoomError(() => service.resumeSession(host), "UNAUTHORIZED");
+  assert.deepEqual(service.resumeSession(guest), guest);
+});
+
+test("only the authenticated host can kick another player in the lobby", () => {
+  const service = createDeterministicService();
+  const host = service.createRoom("Host");
+  const guest = service.joinRoom(host.roomCode, "Guest");
+  const other = service.joinRoom(host.roomCode, "Other");
+
+  expectRoomError(() => service.kickPlayer(guest, other.playerId), "FORBIDDEN");
+  expectRoomError(() => service.kickPlayer(host, host.playerId), "FORBIDDEN");
+  service.kickPlayer(host, guest.playerId);
+  expectRoomError(() => service.resumeSession(guest), "UNAUTHORIZED");
+
+  const room = service.getRoom(host.roomCode);
+  assert.equal(room.players.some(({ id }) => id === guest.playerId), false);
+  assert.equal(room.players.some(({ id }) => id === other.playerId), true);
+});
+
+test("kicking is disabled during a match and an expired room revokes all sessions", () => {
+  let now = 0;
+  const service = createDeterministicService({
+    now: () => now,
+    idleTtlMs: 100,
+  });
+  const host = service.createRoom("Host");
+  const guest = service.joinRoom(host.roomCode, "Guest");
+
+  service.setMatchInProgress(host.roomCode, true);
+  expectRoomError(() => service.kickPlayer(host, guest.playerId), "WRONG_PHASE");
+  now = 100;
+  expectRoomError(() => service.resumeSession(guest), "ROOM_NOT_FOUND");
 });

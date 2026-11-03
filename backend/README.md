@@ -24,8 +24,22 @@ players; the service does not impose a product-level player cap.
 Rooms expire after **30 minutes of inactivity** by default. Configure a
 different positive finite TTL in milliseconds with
 `createRoomService({ idleTtlMs })`. Creation starts the TTL and each successful
-join resets it. Reads and rejected joins do not extend it. Expired rooms are
-removed lazily when accessed. Session credentials use cryptographically secure
-random values and are returned to the caller, but are not stored by this
-service; token hashing and reconnection lifecycle belong to the later guest
-identity work.
+join resets it. Reads, resumes, leaves, kicks, and rejected joins do not extend
+it. Expired rooms are removed lazily when accessed, and all sessions become
+invalid with the room. Each successful join extends the room-wide validity
+window; resuming a session does not. There is no separate guest-token TTL or
+renewal policy.
+
+Guest sessions contain a 256-bit token generated with Node's cryptographic
+random source. If that source fails, the room operation fails before creating a
+room or player. The token is returned only in the caller's `Session`; the
+service keeps a SHA-256 hash scoped to that room and player. Room snapshots
+contain only public player summaries. Resume, leave, and kick authenticate the
+provided token against both the room and player; `playerId` alone is never
+authorization. Leaving or being kicked removes the stored hash and revokes the
+session. Only the authenticated host can kick, and kicking is restricted to
+the lobby. If the host leaves, the first remaining player becomes host.
+
+The shared Socket.IO contract uses `session:resume` with the same `Session`
+shape returned by `room:create` and `room:join`; raw tokens must not be put in
+room codes, invite URLs, logs, or room state.

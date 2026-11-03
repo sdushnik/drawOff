@@ -21,19 +21,33 @@ export function useGameRoom(code: string) {
   // Restore a saved session (refresh / reconnect).
   useEffect(() => {
     const saved = loadSession(code);
-    if (!saved) {
+    if (saved.status === "empty") {
+      setStatus("join");
+      return;
+    }
+    if (saved.status === "invalid") {
+      setJoinError("Saved session data is invalid. Rejoin this room to continue.");
       setStatus("join");
       return;
     }
     let cancelled = false;
     serviceRef
       .current()
-      .resumeSession(saved)
+      .resumeSession(saved.session)
       .then((s) => !cancelled && setSession(s))
-      .catch((e: ServiceError) => {
+      .catch((error: unknown) => {
         if (cancelled) return;
-        clearSession(code);
-        setJoinError(e.code === "ROOM_NOT_FOUND" ? "That room has closed." : e.message);
+        const errorCode = error instanceof ServiceError ? error.code : null;
+        if (errorCode === "ROOM_NOT_FOUND" || errorCode === "UNAUTHORIZED") clearSession(code);
+        setJoinError(
+          errorCode === "ROOM_NOT_FOUND"
+            ? "That room has closed. Join another room to continue."
+            : errorCode === "UNAUTHORIZED"
+              ? "Your saved session is no longer valid. Rejoin this room to continue."
+              : error instanceof Error
+                ? `Couldn't restore your saved session: ${error.message}`
+                : "Couldn't restore your saved session. Try joining again.",
+        );
         setStatus("join");
       });
     return () => {

@@ -1,26 +1,46 @@
-import type { Session } from "@drawoff/contracts";
+import { sessionSchema, type Session } from "@drawoff/contracts";
 
 const key = (code: string) => `drawoff:session:${code.toUpperCase()}`;
 
-export function loadSession(code: string): Session | null {
-  if (typeof window === "undefined") return null;
+export type SavedSession =
+  | { status: "empty" }
+  | { status: "invalid" }
+  | { status: "valid"; session: Session };
+
+export function loadSession(code: string): SavedSession {
+  if (typeof window === "undefined") return { status: "empty" };
   try {
     const raw = window.sessionStorage.getItem(key(code));
-    return raw ? (JSON.parse(raw) as Session) : null;
+    if (!raw) return { status: "empty" };
+    const parsed: unknown = JSON.parse(raw);
+    const result = sessionSchema.safeParse(parsed);
+    if (result.success && result.data.roomCode.toUpperCase() === code.toUpperCase()) {
+      return { status: "valid", session: result.data };
+    }
+    window.sessionStorage.removeItem(key(code));
+    return { status: "invalid" };
   } catch {
-    return null;
+    try {
+      window.sessionStorage.removeItem(key(code));
+    } catch {
+      /* ignore */
+    }
+    return { status: "invalid" };
   }
 }
 
-export function saveSession(session: Session) {
+export function saveSession(session: Session): void {
+  if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.setItem(key(session.roomCode), JSON.stringify(session));
+    const validSession = sessionSchema.parse(session);
+    window.sessionStorage.setItem(key(validSession.roomCode), JSON.stringify(validSession));
   } catch {
     /* ignore */
   }
 }
 
-export function clearSession(code: string) {
+export function clearSession(code: string): void {
+  if (typeof window === "undefined") return;
   try {
     window.sessionStorage.removeItem(key(code));
   } catch {

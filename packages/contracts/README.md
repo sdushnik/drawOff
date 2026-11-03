@@ -11,5 +11,12 @@ objects. Schemas validate inputs without coercion or fallback values. Use
 `safeParse` or `parse` at transport and persistence boundaries; do not duplicate
 the payload definitions in an application.
 
+Guest identity uses the `Session` shape (`roomCode`, `playerId`, and `token`).
+`room:create` and `room:join` return it, and `session:resume`, `room:leave`,
+`player:kick`, and subsequent room/match commands submit it. The player ID is
+only a selector; the backend must authenticate the room-scoped token. Clients
+may persist their own session locally, but must never add the token to room
+URLs or other shareable identifiers.
+
 Build the package before importing it in an app. The frontend and backend
 workspace scripts build it automatically before development, tests, and builds.

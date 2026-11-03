@@ -1,4 +1,10 @@
-import { randomBytes, randomInt, randomUUID } from "node:crypto";
+import {
+  createHash,
+  randomBytes,
+  randomInt,
+  randomUUID,
+  timingSafeEqual,
+} from "node:crypto";
 import {
   playerSummarySchema,
   sessionSchema,
@@ -44,13 +50,16 @@ export interface RoomServiceOptions {
   now?: () => number;
   generateRoomCode?: () => string;
   generateId?: () => string;
-  generateToken?: () => string;
+}
+
+interface RoomPlayerRecord extends RoomPlayer {
+  sessionTokenHash: Buffer;
 }
 
 interface RoomRecord {
   code: string;
   hostId: string;
-  players: RoomPlayer[];
+  players: RoomPlayerRecord[];
   matchInProgress: boolean;
   expiresAt: number;
 }
@@ -65,6 +74,10 @@ function generateCryptographicRoomCode(): string {
 
 function generateCryptographicToken(): string {
   return randomBytes(32).toString("base64url");
+}
+
+function hashSessionToken(token: string): Buffer {
+  return createHash("sha256").update(token, "utf8").digest();
 }
 
 function normalizePlayerName(name: string): string {
@@ -102,7 +115,6 @@ export class RoomService {
   private readonly now: () => number;
   private readonly generateRoomCode: () => string;
   private readonly generateId: () => string;
-  private readonly generateToken: () => string;
 
   constructor(options: RoomServiceOptions = {}) {
     const idleTtlMs = options.idleTtlMs ?? DEFAULT_ROOM_IDLE_TTL_MS;
@@ -114,7 +126,6 @@ export class RoomService {
     this.now = options.now ?? Date.now;
     this.generateRoomCode = options.generateRoomCode ?? generateCryptographicRoomCode;
     this.generateId = options.generateId ?? randomUUID;
-    this.generateToken = options.generateToken ?? generateCryptographicToken;
   }
 
   createRoom(name: string): Session {
@@ -123,12 +134,12 @@ export class RoomService {
     const expiresAt = this.expiryFrom(now);
     const code = this.allocateRoomCode();
     const playerId = this.allocatePlayerId();
-    const session = this.createSession(code, playerId);
+    const { session, player } = this.createSession(code, playerId, normalizedName, true);
 
     this.rooms.set(code, {
       code,
       hostId: playerId,
-      players: [{ id: playerId, name: normalizedName, isHost: true }],
+      players: [player],
       matchInProgress: false,
       expiresAt,
     });
@@ -158,11 +169,47 @@ export class RoomService {
     const normalizedName = normalizePlayerName(name);
     const expiresAt = this.expiryFrom(now);
     const playerId = this.allocatePlayerId(room);
-    const session = this.createSession(room.code, playerId);
+    const { session, player } = this.createSession(
+      room.code,
+      playerId,
+      normalizedName,
+      false,
+    );
 
-    room.players.push({ id: playerId, name: normalizedName, isHost: false });
+    room.players.push(player);
     room.expiresAt = expiresAt;
     return session;
+  }
+
+  resumeSession(session: Session): Session {
+    const { room, player } = this.authenticate(session);
+    return {
+      roomCode: room.code,
+      playerId: player.id,
+      token: session.token,
+    };
+  }
+
+  leaveRoom(session: Session): void {
+    const { room, player } = this.authenticate(session);
+    this.removePlayer(room, player.id);
+  }
+
+  kickPlayer(session: Session, playerId: string): void {
+    const { room, player } = this.authenticate(session);
+    if (player.id !== room.hostId) {
+      throw new RoomServiceError("FORBIDDEN", "Only the host can remove players.");
+    }
+    if (room.matchInProgress) {
+      throw new RoomServiceError("WRONG_PHASE", "Players can only be removed in the lobby.");
+    }
+    if (playerId === room.hostId) {
+      throw new RoomServiceError("FORBIDDEN", "The host cannot remove themselves.");
+    }
+    if (!room.players.some((candidate) => candidate.id === playerId)) {
+      throw new RoomServiceError("INVALID_INPUT", "Player not found.");
+    }
+    this.removePlayer(room, playerId);
   }
 
   getRoom(codeOrLink: string): RoomSnapshot {
@@ -206,12 +253,71 @@ export class RoomService {
     throw new RoomServiceError("REQUEST_FAILED", "Unable to allocate a unique player ID.");
   }
 
-  private createSession(roomCode: string, playerId: string): Session {
-    return sessionSchema.parse({
+  private createSession(
+    roomCode: string,
+    playerId: string,
+    name: string,
+    isHost: boolean,
+  ): { session: Session; player: RoomPlayerRecord } {
+    const token = generateCryptographicToken();
+    const session = sessionSchema.parse({
       roomCode,
       playerId,
-      token: this.generateToken(),
+      token,
     });
+    return {
+      session,
+      player: {
+        id: playerId,
+        name,
+        isHost,
+        sessionTokenHash: hashSessionToken(token),
+      },
+    };
+  }
+
+  private authenticate(session: Session): {
+    room: RoomRecord;
+    player: RoomPlayerRecord;
+  } {
+    try {
+      sessionSchema.parse(session);
+    } catch {
+      throw new RoomServiceError("UNAUTHORIZED", "Your saved session is invalid. Rejoin the room.");
+    }
+    const now = this.readClock();
+    let roomCode: string;
+    try {
+      roomCode = normalizeRoomCode(session.roomCode);
+    } catch {
+      throw new RoomServiceError("UNAUTHORIZED", "Your saved session is invalid. Rejoin the room.");
+    }
+    const room = this.findRoom(roomCode, now);
+    const player = room.players.find((candidate) => candidate.id === session.playerId);
+    if (player === undefined || !this.matchesSessionToken(player, session.token)) {
+      throw new RoomServiceError("UNAUTHORIZED", "Your session is no longer valid. Rejoin the room.");
+    }
+    return { room, player };
+  }
+
+  private matchesSessionToken(player: RoomPlayerRecord, token: string): boolean {
+    const candidateHash = hashSessionToken(token);
+    return timingSafeEqual(player.sessionTokenHash, candidateHash);
+  }
+
+  private removePlayer(room: RoomRecord, playerId: string): void {
+    room.players = room.players.filter((player) => player.id !== playerId);
+    if (room.players.length === 0) {
+      this.rooms.delete(room.code);
+      return;
+    }
+    if (room.hostId === playerId) {
+      room.hostId = room.players[0]!.id;
+      room.players = room.players.map((player) => ({
+        ...player,
+        isHost: player.id === room.hostId,
+      }));
+    }
   }
 
   private findRoom(code: string, now: number): RoomRecord {
@@ -243,7 +349,7 @@ export class RoomService {
     return {
       code: room.code,
       hostId: room.hostId,
-      players: room.players.map((player) => ({ ...player })),
+      players: room.players.map(({ id, name, isHost }) => ({ id, name, isHost })),
       matchInProgress: room.matchInProgress,
       expiresAt: room.expiresAt,
     };
