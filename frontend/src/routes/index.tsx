@@ -4,7 +4,7 @@ import { ArrowRight, Gavel, Palette, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NAME_MAX } from "@/game/constants";
-import { normalizeRoomCode, validateName } from "@/game/rules";
+import { validateName, validateRoomCode } from "@/game/rules";
 import { useGameService } from "@/services/ServiceProvider";
 import { saveSession } from "@/lib/session";
 import stickers from "@/assets/doodle-stickers.png";
@@ -26,7 +26,7 @@ export const Route = createFileRoute("/")({
   component: Home,
 });
 
-function Home() {
+export function Home() {
   const navigate = useNavigate();
   const getService = useGameService();
   const [name, setName] = useState("");
@@ -39,12 +39,14 @@ function Home() {
     setError(null);
     const n = validateName(name);
     if (!n.ok) return setError(n.error);
-    const roomCode = normalizeRoomCode(code);
-    if (mode === "join" && !roomCode) return setError("Enter a room code or invite link.");
+    const roomCode = mode === "join" ? validateRoomCode(code) : null;
+    if (roomCode && !roomCode.ok) return setError(roomCode.error);
     setBusy(mode);
     try {
       const session =
-        mode === "create" ? await getService().createRoom(n.value) : await getService().joinRoom(roomCode, n.value);
+        mode === "create"
+          ? await getService().createRoom(n.value)
+          : await getService().joinRoom(roomCode!.value, n.value);
       saveSession(session);
       navigate({ to: "/room/$code", params: { code: session.roomCode } });
     } catch (err) {
@@ -82,8 +84,8 @@ function Home() {
               <span className="h-0.5 flex-1 bg-ink/15" /> or join friends <span className="h-0.5 flex-1 bg-ink/15" />
             </div>
             <div className="flex gap-2">
-              <Input aria-label="Room code or invite link" value={code} placeholder="Room code or link" className="uppercase tracking-widest placeholder:normal-case placeholder:tracking-normal" onChange={(e) => setCode(e.target.value)} />
-              <Button type="button" variant="teal" size="lg" disabled={busy !== null} onClick={() => go("join")}>
+              <Input aria-label="Room code or invite link" value={code} placeholder="Room code or link" className="min-w-0 uppercase tracking-widest placeholder:normal-case placeholder:tracking-normal" onChange={(e) => setCode(e.target.value)} />
+              <Button type="button" variant="teal" size="lg" className="shrink-0" disabled={busy !== null} onClick={() => go("join")}>
                 Join
               </Button>
             </div>

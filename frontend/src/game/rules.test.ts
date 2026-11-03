@@ -9,6 +9,7 @@ import {
   totalRounds,
   validateName,
   validatePrompt,
+  validateRoomCode,
   validateRatings,
 } from "./rules";
 import { pickSuggestions } from "./prompts";
@@ -64,6 +65,12 @@ describe("misc", () => {
   it("accepts codes or invite links, case-insensitively", () => {
     expect(normalizeRoomCode(" ab12c ")).toBe("AB12C");
     expect(normalizeRoomCode("https://x.app/room/qwe23?x=1")).toBe("QWE23");
+  });
+  it("validates normalized mock and server room codes", () => {
+    expect(validateRoomCode(" ab-12c ")).toEqual({ ok: true, value: "AB12C" });
+    expect(validateRoomCode("https://x.app/room/qwe123?x=1")).toEqual({ ok: true, value: "QWE123" });
+    expect(validateRoomCode("AB12")).toEqual({ ok: false, error: "Enter a valid room code or invite link." });
+    expect(validateRoomCode("TOO-LONG")).toEqual({ ok: false, error: "Enter a valid room code or invite link." });
   });
   it("offers three distinct suggestions", () => {
     const s = pickSuggestions(Math.random);

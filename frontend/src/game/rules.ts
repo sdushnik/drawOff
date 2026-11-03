@@ -117,6 +117,14 @@ export function normalizeRoomCode(raw: string): string {
   return (fromLink?.[1] ?? trimmed).toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
+export function validateRoomCode(raw: string): Result<string> {
+  const value = normalizeRoomCode(raw);
+  if (!/^[A-Z0-9]{5,6}$/.test(value)) {
+    return { ok: false, error: "Enter a valid room code or invite link." };
+  }
+  return { ok: true, value };
+}
+
 export function generateRoomCode(random: () => number): string {
   let code = "";
   for (let i = 0; i < ROOM_CODE_LENGTH; i++) {
