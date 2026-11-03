@@ -98,16 +98,33 @@ test("display names are trimmed, whitespace-normalized, and validated", () => {
   assert.equal(service.getRoom(service.createRoom("  Alice \n Smith ").roomCode).players[0]?.name, "Alice Smith");
 });
 
-test("invalid room codes are rejected and missing rooms use a safe not-found error", () => {
-  const service = createDeterministicService();
-
-  assert.throws(() => normalizeRoomCode("bad"), (error: unknown) => {
-    assert.ok(error instanceof RoomServiceError);
-    assert.equal(error.code, "INVALID_INPUT");
-    return true;
+test("invalid, unknown, and expired room joins use the same safe not-found error", () => {
+  let now = 0;
+  const service = createDeterministicService({
+    now: () => now,
+    idleTtlMs: 100,
   });
-  const error = expectRoomError(() => service.getRoom("ABC123"), "ROOM_NOT_FOUND");
-  assert.equal(error.message, "Room was not found or has expired.");
+  const host = service.createRoom("Host");
+
+  assert.throws(
+    () => normalizeRoomCode("bad"),
+    (error: unknown) => error instanceof RoomServiceError && error.code === "INVALID_INPUT",
+  );
+  const errors = [
+    expectRoomError(() => service.joinRoom("bad", "Guest"), "ROOM_NOT_FOUND"),
+    expectRoomError(() => service.joinRoom("XYZ789", "Guest"), "ROOM_NOT_FOUND"),
+  ];
+  now = 100;
+  errors.push(expectRoomError(() => service.joinRoom(host.roomCode, "Guest"), "ROOM_NOT_FOUND"));
+
+  assert.deepEqual(
+    errors.map(({ message }) => message),
+    [
+      "Room was not found or has expired.",
+      "Room was not found or has expired.",
+      "Room was not found or has expired.",
+    ],
+  );
 });
 
 test("the configured idle TTL starts on creation; reads do not refresh it; expiry is inclusive", () => {

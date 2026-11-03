@@ -13,6 +13,7 @@ const ROOM_CODE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 const ROOM_CODE_PATTERN = new RegExp(`^[A-Z0-9]{${ROOM_CODE_LENGTH}}$`);
 const MAX_ROOM_CODE_ATTEMPTS = 64;
 const MAX_PLAYER_ID_ATTEMPTS = 16;
+const ROOM_NOT_FOUND_MESSAGE = "Room was not found or has expired.";
 
 export class RoomServiceError extends Error {
   constructor(
@@ -136,7 +137,15 @@ export class RoomService {
   }
 
   joinRoom(codeOrLink: string, name: string): Session {
-    const code = normalizeRoomCode(codeOrLink);
+    let code: string;
+    try {
+      code = normalizeRoomCode(codeOrLink);
+    } catch (error) {
+      if (error instanceof RoomServiceError && error.code === "INVALID_INPUT") {
+        throw new RoomServiceError("ROOM_NOT_FOUND", ROOM_NOT_FOUND_MESSAGE);
+      }
+      throw error;
+    }
     const now = this.readClock();
     const room = this.findRoom(code, now);
     if (room.matchInProgress) {
@@ -209,7 +218,7 @@ export class RoomService {
     const room = this.rooms.get(code);
     if (room === undefined || now >= room.expiresAt) {
       if (room !== undefined) this.rooms.delete(code);
-      throw new RoomServiceError("ROOM_NOT_FOUND", "Room was not found or has expired.");
+      throw new RoomServiceError("ROOM_NOT_FOUND", ROOM_NOT_FOUND_MESSAGE);
     }
     return room;
   }
