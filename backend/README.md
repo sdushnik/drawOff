@@ -43,3 +43,11 @@ the lobby. If the host leaves, the first remaining player becomes host.
 The shared Socket.IO contract uses `session:resume` with the same `Session`
 shape returned by `room:create` and `room:join`; raw tokens must not be put in
 room codes, invite URLs, logs, or room state.
+
+The backend registers Socket.IO handlers for `room:create`, `room:join`,
+`session:resume`, `room:leave`, and `player:kick`. Successful requests are
+acknowledged only to the requesting socket using the shared response schemas.
+Failures emit the shared `error` payload to that socket; the server does not
+log request payloads or include submitted credentials in errors. Resume, leave,
+and kick pass the submitted session to `RoomService` for room-and-player token
+verification; a client-supplied player ID by itself is never authorization.

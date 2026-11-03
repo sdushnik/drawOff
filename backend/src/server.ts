@@ -3,17 +3,24 @@ import Fastify, {
   type FastifyReply,
   type FastifyServerOptions,
 } from "fastify";
-import { Server as SocketIOServer } from "socket.io";
+import { Server as SocketIOServer, type Socket } from "socket.io";
 import type {
   ClientToServerPayloads,
   ClientToServerResponses,
   ServerToClientPayloads,
 } from "@drawoff/contracts";
 import {
+  clientToServerPayloadSchemas,
+  clientToServerResponseSchemas,
   healthResponseSchema,
   serviceErrorPayloadSchema,
   type ServiceErrorCode,
 } from "@drawoff/contracts";
+import {
+  createRoomService,
+  RoomService,
+  RoomServiceError,
+} from "./room-service.js";
 
 type ClientSocketEvents = {
   [Event in keyof ClientToServerPayloads]: (
@@ -30,6 +37,118 @@ export interface RunningServer {
   app: FastifyInstance;
   io: SocketIOServer;
   address: string;
+}
+
+interface RuntimeSchema<T> {
+  safeParse(payload: unknown):
+    | { success: true; data: T }
+    | { success: false; error: unknown };
+  parse(payload: unknown): T;
+}
+
+function emitSocketError(
+  socket: Socket<ClientSocketEvents, ServerSocketEvents>,
+  code: ServiceErrorCode,
+  message: string,
+): void {
+  socket.emit("error", serviceErrorPayloadSchema.parse({ code, message }));
+}
+
+function handleSocketRequest<TPayload, TResponse>(
+  socket: Socket<ClientSocketEvents, ServerSocketEvents>,
+  rawPayload: unknown,
+  payloadSchema: RuntimeSchema<TPayload>,
+  responseSchema: RuntimeSchema<TResponse>,
+  acknowledge: ((response: TResponse) => void) | undefined,
+  operation: (payload: TPayload) => unknown,
+): void {
+  if (typeof acknowledge !== "function") {
+    emitSocketError(socket, "INVALID_INPUT", "A request acknowledgement is required.");
+    return;
+  }
+
+  const parsed = payloadSchema.safeParse(rawPayload);
+  if (!parsed.success) {
+    emitSocketError(socket, "INVALID_INPUT", "The request is invalid.");
+    return;
+  }
+
+  try {
+    const response = responseSchema.parse(operation(parsed.data));
+    acknowledge(response);
+  } catch (error) {
+    if (error instanceof RoomServiceError) {
+      emitSocketError(socket, error.code, error.message);
+      return;
+    }
+
+    emitSocketError(socket, "REQUEST_FAILED", "The request could not be completed.");
+  }
+}
+
+function registerRoomHandlers(io: SocketIOServer, roomService: RoomService): void {
+  io.on("connection", (socket) => {
+    socket.on("room:create", (payload, acknowledge) => {
+      handleSocketRequest(
+        socket,
+        payload,
+        clientToServerPayloadSchemas["room:create"],
+        clientToServerResponseSchemas["room:create"],
+        acknowledge,
+        ({ name }) => ({ session: roomService.createRoom(name) }),
+      );
+    });
+
+    socket.on("room:join", (payload, acknowledge) => {
+      handleSocketRequest(
+        socket,
+        payload,
+        clientToServerPayloadSchemas["room:join"],
+        clientToServerResponseSchemas["room:join"],
+        acknowledge,
+        ({ code, name }) => ({ session: roomService.joinRoom(code, name) }),
+      );
+    });
+
+    socket.on("session:resume", (payload, acknowledge) => {
+      handleSocketRequest(
+        socket,
+        payload,
+        clientToServerPayloadSchemas["session:resume"],
+        clientToServerResponseSchemas["session:resume"],
+        acknowledge,
+        ({ session }) => ({ session: roomService.resumeSession(session) }),
+      );
+    });
+
+    socket.on("room:leave", (payload, acknowledge) => {
+      handleSocketRequest(
+        socket,
+        payload,
+        clientToServerPayloadSchemas["room:leave"],
+        clientToServerResponseSchemas["room:leave"],
+        acknowledge,
+        ({ session }) => {
+          roomService.leaveRoom(session);
+          return {};
+        },
+      );
+    });
+
+    socket.on("player:kick", (payload, acknowledge) => {
+      handleSocketRequest(
+        socket,
+        payload,
+        clientToServerPayloadSchemas["player:kick"],
+        clientToServerResponseSchemas["player:kick"],
+        acknowledge,
+        ({ session, playerId }) => {
+          roomService.kickPlayer(session, playerId);
+          return {};
+        },
+      );
+    });
+  });
 }
 
 function sendHttpError(
@@ -53,9 +172,15 @@ export function registerHealthRoute(app: FastifyInstance, isReady: () => boolean
   });
 }
 
-export function createServer(options: { logger?: FastifyServerOptions["logger"] } = {}) {
+export function createServer(
+  options: {
+    logger?: FastifyServerOptions["logger"];
+    roomService?: RoomService;
+  } = {},
+) {
   const app = Fastify({ logger: options.logger ?? true });
   const io = new SocketIOServer<ClientSocketEvents, ServerSocketEvents>(app.server);
+  registerRoomHandlers(io, options.roomService ?? createRoomService());
   let fastifyReady = false;
 
   app.addHook("onReady", async () => {
