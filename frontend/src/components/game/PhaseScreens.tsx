@@ -31,16 +31,18 @@ export function RoleReveal({ view }: { view: PlayerView }) {
           {judge ? "Pick the word, watch everyone draw, then rate every drawing." : "Draw the word in 60 seconds. Only the judge can see your work."}
         </p>
       </div>
-      <div className="flex flex-wrap justify-center gap-2 text-sm">
-        <span className="sticker-sm bg-card px-3 py-1 font-semibold">
-          <Gavel className="mr-1 inline size-4" /> {nameOf(view, m.judgeId)}
-        </span>
+      <ul aria-label="Round roles" className="flex w-full flex-wrap justify-center gap-2 text-sm">
+        <li className="sticker-sm bg-card px-3 py-1 font-semibold">
+          <Gavel aria-hidden="true" className="mr-1 inline size-4" />
+          Judge: {nameOf(view, m.judgeId)}
+        </li>
         {m.artistIds.map((id) => (
-          <span key={id} className="sticker-sm bg-card px-3 py-1">
-            <Palette className="mr-1 inline size-4" /> {nameOf(view, id)}
-          </span>
+          <li key={id} className="sticker-sm bg-card px-3 py-1">
+            <Palette aria-hidden="true" className="mr-1 inline size-4" />
+            Artist: {nameOf(view, id)}
+          </li>
         ))}
-      </div>
+      </ul>
     </Center>
   );
 }
@@ -53,9 +55,9 @@ export function WordSelection({ view, room }: { view: PlayerView; room: GameRoom
   if (view.role !== "judge") {
     return (
       <Center>
-        <Hourglass className="size-14 animate-wobble" />
+        <Hourglass aria-hidden="true" className="size-14 animate-wobble" />
         <h2 className="text-4xl font-extrabold">{nameOf(view, view.match!.judgeId)} is picking a word…</h2>
-        <p className="text-muted-foreground">Warm up those wrists.</p>
+        <p className="text-muted-foreground">Waiting for the Judge to confirm the prompt. Warm up those wrists.</p>
       </Center>
     );
   }
@@ -75,7 +77,7 @@ export function WordSelection({ view, room }: { view: PlayerView; room: GameRoom
   return (
     <Center>
       <h2 className="text-4xl font-extrabold">Pick the word</h2>
-      <div className="grid w-full gap-3 sm:grid-cols-3">
+      <div role="group" aria-label="Prompt suggestions" className="grid w-full gap-3 sm:grid-cols-3">
         {view.suggestions!.map((s, i) => (
           <Button
             key={s}
@@ -89,26 +91,32 @@ export function WordSelection({ view, room }: { view: PlayerView; room: GameRoom
           </Button>
         ))}
       </div>
-      <form onSubmit={submitCustom} className="sticker flex w-full flex-col gap-2 p-4 text-left">
+      <form aria-label="Custom prompt" onSubmit={submitCustom} className="sticker flex w-full flex-col gap-2 p-4 text-left">
         <label htmlFor="custom-word" className="font-display font-bold">
           …or write your own
         </label>
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <Input
             id="custom-word"
             value={custom}
             maxLength={PROMPT_MAX}
             placeholder="e.g. a very nervous pineapple"
+            aria-invalid={Boolean(error)}
+            aria-describedby={error ? "custom-word-error" : undefined}
             onChange={(e) => {
               setCustom(e.target.value);
               setError(null);
             }}
           />
-          <Button type="submit" disabled={busy}>
+          <Button type="submit" disabled={busy} className="w-full sm:w-auto">
             Use it
           </Button>
         </div>
-        {error && <p className="text-sm font-semibold text-destructive">{error}</p>}
+        {error && (
+          <p id="custom-word-error" role="alert" className="text-sm font-semibold text-destructive">
+            {error}
+          </p>
+        )}
       </form>
     </Center>
   );
