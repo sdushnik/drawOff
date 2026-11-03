@@ -125,7 +125,9 @@ export function createSocketGameService(serverUrl: string): GameService {
     submitCanvas: async (session: Session) => {
       await request("drawing:submit", { session });
     },
-    submitRatings: unsupported,
+    submitRatings: async (session, ratings) => {
+      await request("ratings:submit", { session, ratings });
+    },
     rematch: unsupported,
     returnToLobby: unsupported,
     subscribe(

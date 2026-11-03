@@ -458,6 +458,23 @@ function registerRoomHandlers(
         },
       );
     });
+
+    socket.on("ratings:submit", (payload, acknowledge) => {
+      handleSocketRequest(
+        socket,
+        payload,
+        clientToServerPayloadSchemas["ratings:submit"],
+        clientToServerResponseSchemas["ratings:submit"],
+        acknowledge,
+        ({ session }) => {
+          assertAttached(socket, session);
+          throw new RoomServiceError(
+            "SERVICE_UNAVAILABLE",
+            "Rating submissions are not available yet.",
+          );
+        },
+      );
+    });
   });
 }
 

@@ -65,3 +65,27 @@ test("two frontend Socket.IO clients create and join the same live room", async 
     await new Promise<void>((resolve) => io.close(() => resolve()));
   }
 });
+
+test("live Socket.IO rating submissions reach the server and receive its stable service error", async () => {
+  const { app, io } = createServer({ logger: false });
+  const address = await app.listen({ host: "127.0.0.1", port: 0 });
+  const client = createSocketGameService(address);
+  let stopUpdates = () => {};
+
+  try {
+    const judge = await client.createRoom("Judge");
+    stopUpdates = client.subscribe(judge, () => {});
+    await assert.rejects(
+      client.submitRatings(judge, { "Drawing 1": 0, "Drawing 2": 100 }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.equal("code" in error ? error.code : undefined, "SERVICE_UNAVAILABLE");
+        assert.equal(error.message, "Rating submissions are not available yet.");
+        return true;
+      },
+    );
+  } finally {
+    stopUpdates();
+    await new Promise<void>((resolve) => io.close(() => resolve()));
+  }
+});

@@ -36,8 +36,8 @@ mock unless `VITE_GAME_SERVER_URL` is set. The live service supports room
 creation/joining, roster updates, reconnect, leave, host kick, and cycle
 selection; the mock remains the full gameplay implementation.
 
-Judging uses the `GameService.submitRatings` interface. The browser mock
-submits to its local game engine; the live Socket.IO service currently returns
-an explicit unsupported-action error for rating submissions. It does not send
-ratings to a backend or report a successful live submission yet; live rating
-validation, scoring, and result handling are tracked separately in issue #18.
+Judging uses the `GameService.submitRatings` interface. The browser mock submits
+to its local game engine, and the live Socket.IO service sends the anonymous
+label-to-rating map to the server. Until issue #18 implements live validation,
+scoring, and result handling, the server responds with a stable
+`SERVICE_UNAVAILABLE` error; the gallery preserves ratings and allows retry.
