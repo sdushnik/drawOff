@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  applyOps,
   clientToServerPayloadSchemas,
   clientToServerResponseSchemas,
   cyclesSchema,
   drawOpSchema,
+  emptyCanvas,
+  MAX_ACTIONS_PER_CANVAS,
+  MAX_OPS_PER_BATCH,
+  MAX_POINTS_PER_OP,
+  MAX_POINTS_PER_STROKE,
   phaseSchema,
   playerViewSchema,
   ratingSchema,
@@ -103,6 +109,8 @@ test("bounded names, prompts, operation IDs, strokes, and drawing coordinates ac
   for (const size of [0, 61]) assert.equal(stroke(size), false, `stroke size ${size}`);
 
   assert.equal(stroke(1, [0, 0, 600, 450]), true, "stroke coordinate endpoints");
+  assert.equal(stroke(1, Array.from({ length: 600 }, () => 1)), true, "600 stroke coordinates");
+  assert.equal(stroke(1, Array.from({ length: 602 }, () => 1)), false, "602 stroke coordinates");
   for (const points of [
     [-0.1, 0],
     [600.1, 0],
@@ -318,6 +326,64 @@ test("all declared client-to-server payloads and acknowledgements have strict sc
   assert.equal(
     clientToServerResponseSchemas["room:create"].safeParse({ session, extra: true }).success,
     false,
+  );
+});
+
+test("drawing batches accept 60 operations and reject 61 without truncation", () => {
+  const batch = (length: number) => ({
+    session,
+    ops: Array.from({ length }, (_, index) => ({ type: "clear", id: `op-${index}` })),
+  });
+  assert.equal(clientToServerPayloadSchemas["drawing:ops"].safeParse(batch(60)).success, true);
+  assert.equal(clientToServerPayloadSchemas["drawing:ops"].safeParse(batch(61)).success, false);
+});
+
+test("canvas history and continued strokes stop at their exact documented bounds", () => {
+  assert.deepEqual(
+    [MAX_OPS_PER_BATCH, MAX_POINTS_PER_OP, MAX_POINTS_PER_STROKE, MAX_ACTIONS_PER_CANVAS],
+    [60, 600, 20_000, 4_000],
+  );
+
+  const history = emptyCanvas();
+  for (let start = 0; start < MAX_ACTIONS_PER_CANVAS; start += MAX_OPS_PER_BATCH) {
+    const length = Math.min(MAX_OPS_PER_BATCH, MAX_ACTIONS_PER_CANVAS - start);
+    assert.equal(
+      applyOps(
+        history,
+        Array.from({ length }, (_, index) => ({ type: "clear", id: `clear-${start + index}` })),
+      ),
+      length,
+    );
+  }
+  assert.equal(history.actions.length, MAX_ACTIONS_PER_CANVAS);
+  assert.equal(applyOps(history, [{ type: "clear", id: "over-history" }]), 0);
+
+  const stroke = emptyCanvas();
+  const pointChunk = Array.from({ length: 500 }, () => 1);
+  for (let offset = 0; offset < MAX_POINTS_PER_STROKE; offset += pointChunk.length) {
+    assert.equal(
+      applyOps(stroke, [{
+        type: "stroke",
+        id: "continued",
+        tool: "pen",
+        color: "#000000",
+        size: 2,
+        points: pointChunk,
+      }]),
+      1,
+    );
+  }
+  assert.equal(stroke.actions[0]?.type === "stroke" && stroke.actions[0].points.length, 20_000);
+  assert.equal(
+    applyOps(stroke, [{
+      type: "stroke",
+      id: "continued",
+      tool: "pen",
+      color: "#000000",
+      size: 2,
+      points: [1, 1],
+    }]),
+    0,
   );
 });
 

@@ -259,6 +259,18 @@ export class RoomService {
     return this.toSnapshot(this.findRoom(code, this.readClock()));
   }
 
+  purgeExpiredRooms(): number {
+    const now = this.readClock();
+    let removed = 0;
+    for (const [code, room] of this.rooms) {
+      if (now >= room.expiresAt) {
+        this.rooms.delete(code);
+        removed += 1;
+      }
+    }
+    return removed;
+  }
+
   setMatchInProgress(codeOrLink: string, matchInProgress: boolean): void {
     const code = normalizeRoomCode(codeOrLink);
     const room = this.findRoom(code, this.readClock());

@@ -27,6 +27,13 @@ import {
   MatchStateMachine,
   type MatchStateMachineOptions,
 } from "./match-state-machine.js";
+import {
+  FixedWindowRateLimiter,
+  resourceLimitOptionsFromEnvironment,
+  resolveResourceLimits,
+  type ResourceLimitOptions,
+  type ResourceLimits,
+} from "./resource-limits.js";
 
 type ClientSocketEvents = {
   [Event in keyof ClientToServerPayloads]: (
@@ -149,6 +156,8 @@ function handleSocketRequest<TPayload, TResponse>(
 function registerRoomHandlers(
   io: SocketIOServer,
   roomService: RoomService,
+  resourceLimits: ResourceLimits,
+  rateLimiter: FixedWindowRateLimiter,
   machineOptions: Omit<MatchStateMachineOptions, "onTransition"> = {},
 ): void {
   const attachedSessions = new Map<string, Session>();
@@ -198,9 +207,42 @@ function registerRoomHandlers(
 
   matchStateMachine = new MatchStateMachine(roomService, {
     ...machineOptions,
+    maxCanvasActionsPerRoom: resourceLimits.maxCanvasActionsPerRoom,
     onTransition: publishRoom,
   });
-  io.engine.on("close", () => matchStateMachine.dispose());
+  const cleanupTimer = setInterval(
+    () => roomService.purgeExpiredRooms(),
+    resourceLimits.roomCleanupIntervalMs,
+  );
+  cleanupTimer.unref();
+  io.engine.on("close", () => {
+    clearInterval(cleanupTimer);
+    matchStateMachine.dispose();
+  });
+
+  const enforceAttachedRateLimits = (
+    socket: Socket<ClientSocketEvents, ServerSocketEvents>,
+    kind: "drawing" | "submissions",
+  ) => {
+    const session = attachedSessions.get(socket.id);
+    if (!session) return;
+    const sessionRule = kind === "drawing"
+      ? resourceLimits.drawingPerSession
+      : resourceLimits.submissionsPerSession;
+    const roomRule = kind === "drawing"
+      ? resourceLimits.drawingPerRoom
+      : resourceLimits.submissionsPerRoom;
+    rateLimiter.consume(
+      `${kind}:session:${playerKey(session)}`,
+      sessionRule,
+      `${kind} from this session`,
+    );
+    rateLimiter.consume(
+      `${kind}:room:${session.roomCode}`,
+      roomRule,
+      `${kind} in this room`,
+    );
+  };
 
   const detach = (
     socket: Socket<ClientSocketEvents, ServerSocketEvents>,
@@ -284,6 +326,11 @@ function registerRoomHandlers(
         clientToServerResponseSchemas["room:create"],
         acknowledge,
         ({ name }) => {
+          rateLimiter.consume(
+            `create:connection:${socket.id}`,
+            resourceLimits.roomCreatesPerConnection,
+            "room creation",
+          );
           const session = roomService.createRoom(name);
           attach(socket, session);
           publishRoom(session.roomCode);
@@ -300,6 +347,17 @@ function registerRoomHandlers(
         clientToServerResponseSchemas["room:join"],
         acknowledge,
         ({ code, name }) => {
+          rateLimiter.consume(
+            `join:connection:${socket.id}`,
+            resourceLimits.roomCodeGuessesPerConnection,
+            "room-code attempts from this connection",
+          );
+          const attemptedCode = code.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 64);
+          rateLimiter.consume(
+            `join:code:${attemptedCode}`,
+            resourceLimits.roomCodeGuessesPerCode,
+            "attempts for this room code",
+          );
           const session = roomService.joinRoom(code, name);
           attach(socket, session);
           publishRoom(session.roomCode);
@@ -451,6 +509,7 @@ function registerRoomHandlers(
         acknowledge,
         ({ session, ops }) => {
           assertAttached(socket, session);
+          enforceAttachedRateLimits(socket, "drawing");
           const authenticated = attachedSessions.get(socket.id)!;
           const changed = matchStateMachine.sendDrawOps(authenticated, ops);
           if (changed) {
@@ -470,6 +529,7 @@ function registerRoomHandlers(
         acknowledge,
         ({ session }) => {
           assertAttached(socket, session);
+          enforceAttachedRateLimits(socket, "submissions");
           const authenticated = attachedSessions.get(socket.id)!;
           matchStateMachine.submitCanvas(authenticated);
           publishDrawingViews(authenticated.roomCode, authenticated.playerId);
@@ -487,6 +547,7 @@ function registerRoomHandlers(
         acknowledge,
         ({ session, ratings }) => {
           assertAttached(socket, session);
+          enforceAttachedRateLimits(socket, "submissions");
           matchStateMachine.submitRatings(attachedSessions.get(socket.id)!, ratings);
           return {};
         },
@@ -522,15 +583,18 @@ export function createServer(
     corsOrigins?: readonly string[];
     roomService?: RoomService;
     matchStateMachineOptions?: Omit<MatchStateMachineOptions, "onTransition">;
+    resourceLimits?: ResourceLimitOptions;
   } = {},
 ) {
   const corsOrigins = validateCorsOrigins(options.corsOrigins ?? resolveCorsOrigins());
+  const resourceLimits = resolveResourceLimits(options.resourceLimits);
   const app = Fastify({ logger: options.logger ?? true });
   void app.register(cors, {
     origin: corsOrigins,
     credentials: true,
   });
   const io = new SocketIOServer<ClientSocketEvents, ServerSocketEvents>(app.server, {
+    maxHttpBufferSize: resourceLimits.maxInboundMessageBytes,
     cors: {
       origin: corsOrigins,
       credentials: true,
@@ -539,6 +603,8 @@ export function createServer(
   registerRoomHandlers(
     io,
     options.roomService ?? createRoomService(),
+    resourceLimits,
+    new FixedWindowRateLimiter(options.resourceLimits?.now),
     options.matchStateMachineOptions,
   );
   let fastifyReady = false;
@@ -595,9 +661,17 @@ export function createServer(
 }
 
 export async function startServer(
-  options: { host?: string; port?: number; corsOrigins?: readonly string[] } = {},
+  options: {
+    host?: string;
+    port?: number;
+    corsOrigins?: readonly string[];
+    resourceLimits?: ResourceLimitOptions;
+  } = {},
 ): Promise<RunningServer> {
-  const { app, io } = createServer({ corsOrigins: options.corsOrigins });
+  const { app, io } = createServer({
+    corsOrigins: options.corsOrigins,
+    resourceLimits: options.resourceLimits ?? resourceLimitOptionsFromEnvironment(),
+  });
   const address = await app.listen({
     host: options.host ?? "0.0.0.0",
     port: options.port ?? 3000,

@@ -71,6 +71,7 @@ export interface MatchStateMachineOptions {
   setTimer?: (callback: () => void, delayMs: number) => TimerHandle;
   clearTimer?: (timer: TimerHandle) => void;
   onTransition?: (roomCode: string) => void;
+  maxCanvasActionsPerRoom?: number;
 }
 
 export class MatchStateMachine {
@@ -80,6 +81,7 @@ export class MatchStateMachine {
   private readonly setTimer: (callback: () => void, delayMs: number) => TimerHandle;
   private readonly clearTimer: (timer: TimerHandle) => void;
   private readonly onTransition: (roomCode: string) => void;
+  private readonly maxCanvasActionsPerRoom: number;
 
   constructor(
     private readonly rooms: RoomService,
@@ -90,6 +92,10 @@ export class MatchStateMachine {
     this.setTimer = options.setTimer ?? setTimeout;
     this.clearTimer = options.clearTimer ?? clearTimeout;
     this.onTransition = options.onTransition ?? (() => undefined);
+    this.maxCanvasActionsPerRoom = options.maxCanvasActionsPerRoom ?? 50_000;
+    if (!Number.isSafeInteger(this.maxCanvasActionsPerRoom) || this.maxCanvasActionsPerRoom <= 0) {
+      throw new RangeError("maxCanvasActionsPerRoom must be a positive safe integer.");
+    }
   }
 
   startMatch(session: Session): void {
@@ -352,6 +358,8 @@ export class MatchStateMachine {
         { ...entry, fingerprints: new Set(entry.fingerprints) },
       ]),
     );
+    let roomActionCount = [...progress.canvases.values()]
+      .reduce((total, canvas) => total + canvas.canvas.actions.length, 0);
     for (const op of ops) {
       const fingerprint = JSON.stringify(op);
       const previous = operations.get(op.id);
@@ -381,9 +389,20 @@ export class MatchStateMachine {
 
       const canUndo = next.actions.length > 0;
       const previousRevision = next.rev;
+      const previousActionCount = next.actions.length;
       const accepted = applyOps(next, [op]);
       if (accepted === 0 && !(op.type === "undo" && !canUndo)) {
-        throw new RoomServiceError("REQUEST_FAILED", "The drawing operation could not be committed.");
+        throw new RoomServiceError(
+          "INVALID_INPUT",
+          "The drawing operation exceeds a configured canvas operation limit.",
+        );
+      }
+      roomActionCount += next.actions.length - previousActionCount;
+      if (roomActionCount > this.maxCanvasActionsPerRoom) {
+        throw new RoomServiceError(
+          "INVALID_INPUT",
+          "The drawing operation exceeds the configured room canvas history limit.",
+        );
       }
       if (next.rev !== previousRevision) sequence += 1;
     }

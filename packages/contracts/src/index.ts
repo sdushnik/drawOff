@@ -1,5 +1,14 @@
 import { z } from "zod";
-export { applyOps, cloneCanvas, emptyCanvas, sanitizeOp } from "./canvasOps.js";
+export {
+  applyOps,
+  cloneCanvas,
+  emptyCanvas,
+  sanitizeOp,
+  MAX_ACTIONS_PER_CANVAS,
+  MAX_OPS_PER_BATCH,
+  MAX_POINTS_PER_OP,
+  MAX_POINTS_PER_STROKE,
+} from "./canvasOps.js";
 
 export { PROMPTS, pickSuggestions } from "./prompts.js";
 
@@ -71,6 +80,7 @@ const strokeSchema = z
     points: z
       .array(finiteNumberSchema)
       .min(2)
+      .max(600)
       .refine((points) => points.length % 2 === 0)
       .refine((points) =>
         points.every((coordinate, index) =>

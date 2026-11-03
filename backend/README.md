@@ -35,10 +35,54 @@ Rooms expire after **30 minutes of inactivity** by default. Configure a
 different positive finite TTL in milliseconds with
 `createRoomService({ idleTtlMs })`. Creation starts the TTL and each successful
 join resets it. Reads, resumes, leaves, kicks, and rejected joins do not extend
-it. Expired rooms are removed lazily when accessed, and all sessions become
+it. Expired rooms are removed lazily when accessed and by a periodic sweep,
+and all sessions become
 invalid with the room. Each successful join extends the room-wide validity
 window; resuming a session does not. There is no separate guest-token TTL or
 renewal policy.
+
+## Realtime resource limits
+
+The authoritative server rejects over-limit requests before changing match state or
+relaying an event. Socket.IO closes a transport that exceeds the default **512 KiB**
+inbound message ceiling before application parsing. Valid drawing payloads are
+limited to **60 operations per batch**, **600 coordinates per operation**, **20,000
+coordinates per continued stroke**, and **4,000 retained actions per canvas**. The
+server also defaults to **50,000 retained canvas actions across one room**. Canvas
+and room-history overflows are explicit `INVALID_INPUT` errors; batches are never
+silently truncated and a rejected batch is not partially committed.
+
+Fixed-window request defaults are conservative provisional deployment guards:
+
+| Scope | Default |
+| --- | ---: |
+| drawing events per session | 240 / 10 seconds |
+| drawing events per room | 10,000 / 10 seconds |
+| drawing/rating submissions per session | 20 / minute |
+| drawing/rating submissions per room | 2,000 / minute |
+| room creation per connection | 5 / minute |
+| room-code guesses per connection | 30 / minute |
+| room-code guesses per attempted code | 200 / minute |
+
+An exceeded application rate returns a retryable `REQUEST_FAILED` error containing
+the remaining window in milliseconds. Authentication and phase checks still happen
+before any drawing relay. Expired/abandoned rooms are swept every 60 seconds in
+addition to existing lazy expiry checks.
+
+All thresholds are configurable with positive-integer environment variables:
+`MAX_INBOUND_MESSAGE_BYTES`, `MAX_CANVAS_ACTIONS_PER_ROOM`,
+`ROOM_CLEANUP_INTERVAL_MS`, `DRAWING_SESSION_RATE_MAX`,
+`DRAWING_SESSION_RATE_WINDOW_MS`, `DRAWING_ROOM_RATE_MAX`,
+`DRAWING_ROOM_RATE_WINDOW_MS`, `SUBMISSION_SESSION_RATE_MAX`,
+`SUBMISSION_SESSION_RATE_WINDOW_MS`, `SUBMISSION_ROOM_RATE_MAX`,
+`SUBMISSION_ROOM_RATE_WINDOW_MS`, `ROOM_CREATE_RATE_MAX`,
+`ROOM_CREATE_RATE_WINDOW_MS`, `ROOM_CODE_GUESS_CONNECTION_RATE_MAX`,
+`ROOM_CODE_GUESS_CONNECTION_RATE_WINDOW_MS`,
+`ROOM_CODE_GUESS_CODE_RATE_MAX`, and `ROOM_CODE_GUESS_CODE_RATE_WINDOW_MS`.
+
+These are operational controls, not gameplay rules. There is no fixed six-player
+maximum and no configured player-count ceiling. Issue #25 must load-test and tune
+these provisional values against measured bandwidth, latency, and memory budgets.
 
 Guest sessions contain a 256-bit token generated with Node's cryptographic
 random source. If that source fails, the room operation fails before creating a

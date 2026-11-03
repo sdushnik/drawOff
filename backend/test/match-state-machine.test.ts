@@ -13,7 +13,7 @@ interface FakeTimer {
   dueAt: number;
 }
 
-function createFixture(playerCount = 3) {
+function createFixture(playerCount = 3, maxCanvasActionsPerRoom = 50_000) {
   let now = 1_000;
   let nextPlayer = 0;
   let nextTimer = 0;
@@ -44,6 +44,7 @@ function createFixture(playerCount = 3) {
       activeTimers.delete(handle as unknown as number);
     },
     onTransition: (roomCode) => transitions.push(roomCode),
+    maxCanvasActionsPerRoom,
   });
 
   return {
@@ -752,6 +753,34 @@ test("drawing operations stay private, commit in order, and early submit locks o
   fixture.machine.sendDrawOps(otherArtist, [ops[0]!]);
   assert.equal(fixture.view(otherArtist).myCanvas?.canvas.actions.length, 1);
   assert.equal(fixture.view(artist).myCanvas?.canvas.actions.length, 2);
+});
+
+test("aggregate room canvas history rejects atomically at its exact boundary and then recovers", () => {
+  const fixture = createFixture(3, 2);
+  advanceToWordSelection(fixture);
+  fixture.machine.selectPrompt(fixture.host, "lighthouse");
+  const firstArtist = fixture.sessions[1]!;
+  const secondArtist = fixture.sessions[2]!;
+
+  assert.equal(
+    fixture.machine.sendDrawOps(firstArtist, [
+      { type: "clear", id: "one" },
+      { type: "clear", id: "two" },
+    ]),
+    true,
+  );
+  expectRoomError(
+    () => fixture.machine.sendDrawOps(secondArtist, [{ type: "clear", id: "over-limit" }]),
+    "INVALID_INPUT",
+  );
+  assert.deepEqual(fixture.view(secondArtist).myCanvas?.canvas.actions, []);
+
+  fixture.machine.sendDrawOps(firstArtist, [{ type: "undo", id: "free-space" }]);
+  assert.equal(
+    fixture.machine.sendDrawOps(secondArtist, [{ type: "clear", id: "after-rejection" }]),
+    true,
+  );
+  assert.equal(fixture.view(secondArtist).myCanvas?.canvas.actions.length, 1);
 });
 
 test("drawing operations and submissions reject at the server-owned deadline", () => {

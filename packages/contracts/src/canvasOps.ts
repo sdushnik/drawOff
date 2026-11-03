@@ -2,10 +2,10 @@ import type { CanvasSnapshot, DrawOp } from "./index.js";
 
 const CANVAS_WIDTH = 600;
 const CANVAS_HEIGHT = 450;
-const MAX_ACTIONS_PER_CANVAS = 4_000;
-const MAX_OPS_PER_BATCH = 60;
-const MAX_POINTS_PER_OP = 600;
-const MAX_POINTS_PER_STROKE = 20_000;
+export const MAX_ACTIONS_PER_CANVAS = 4_000;
+export const MAX_OPS_PER_BATCH = 60;
+export const MAX_POINTS_PER_OP = 600;
+export const MAX_POINTS_PER_STROKE = 20_000;
 const MAX_BRUSH = 60;
 
 export function emptyCanvas(): CanvasSnapshot {
