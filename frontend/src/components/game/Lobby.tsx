@@ -32,6 +32,15 @@ export function Lobby({ view, room, onLeave }: { view: PlayerView; room: GameRoo
 
   return (
     <div className="mx-auto grid w-full max-w-5xl gap-6 lg:grid-cols-[1.1fr_1fr]">
+      {view.notice && (
+        <p
+          className="sticker-sm bg-secondary px-4 py-3 text-center text-sm font-semibold lg:col-span-2"
+          role="status"
+          aria-live="polite"
+        >
+          {view.notice}
+        </p>
+      )}
       <section className="sticker p-5">
         <div className="flex items-center justify-between">
           <h2 id="room-roster-heading" className="text-2xl font-extrabold">Players</h2>

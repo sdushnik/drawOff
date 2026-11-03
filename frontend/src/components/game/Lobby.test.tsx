@@ -86,4 +86,24 @@ describe("Lobby roster accessibility", () => {
     );
     expect(screen.getByText("The match has started.")).toBeInTheDocument();
   });
+
+  it("shows the server-owned interruption and recovery notice", () => {
+    const notice =
+      "The match was canceled because a required player did not reconnect in time. No winner was declared. At least 3 connected players are needed to start a new match.";
+    const room = {
+      capabilities: () => ({ demoPlayers: false, label: "Live room" }),
+      act: vi.fn(),
+    } as unknown as GameRoom;
+
+    render(
+      <Lobby
+        view={makeLobbyView({ notice })}
+        room={room}
+        onLeave={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(notice)).toHaveAttribute("role", "status");
+    expect(screen.getByText(/Need at least 3 players/)).toBeInTheDocument();
+  });
 });
