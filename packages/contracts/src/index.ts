@@ -124,6 +124,7 @@ export type CanvasSnapshot = z.infer<typeof canvasSnapshotSchema>;
 export const liveCanvasSchema = z
   .object({
     label: z.string(),
+    sequence: z.number().int().nonnegative(),
     canvas: canvasSnapshotSchema,
     locked: z.boolean(),
   })

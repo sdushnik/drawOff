@@ -179,6 +179,23 @@ function registerRoomHandlers(
     }
   };
 
+  const publishDrawingViews = (roomCode: string, artistId: string) => {
+    for (const [socketId, session] of attachedSessions) {
+      if (session.roomCode !== roomCode) continue;
+      const socket = io.sockets.sockets.get(socketId);
+      if (!socket) continue;
+      try {
+        const view = matchStateMachine.getPlayerView(session);
+        if (session.playerId === artistId || view.role === "judge") {
+          socket.emit("state:update", view);
+        }
+      } catch {
+        socket.leave(roomCode);
+        attachedSessions.delete(socketId);
+      }
+    }
+  };
+
   matchStateMachine = new MatchStateMachine(roomService, {
     ...machineOptions,
     onTransition: publishRoom,
@@ -415,8 +432,11 @@ function registerRoomHandlers(
         acknowledge,
         ({ session, ops }) => {
           assertAttached(socket, session);
-          matchStateMachine.sendDrawOps(session, ops);
-          publishRoom(session.roomCode);
+          const authenticated = attachedSessions.get(socket.id)!;
+          const changed = matchStateMachine.sendDrawOps(authenticated, ops);
+          if (changed) {
+            publishDrawingViews(authenticated.roomCode, authenticated.playerId);
+          }
           return {};
         },
       );
@@ -431,8 +451,9 @@ function registerRoomHandlers(
         acknowledge,
         ({ session }) => {
           assertAttached(socket, session);
-          matchStateMachine.submitCanvas(session);
-          publishRoom(session.roomCode);
+          const authenticated = attachedSessions.get(socket.id)!;
+          matchStateMachine.submitCanvas(authenticated);
+          publishDrawingViews(authenticated.roomCode, authenticated.playerId);
           return {};
         },
       );

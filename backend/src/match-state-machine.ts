@@ -50,6 +50,8 @@ interface MatchProgress {
 interface ArtistCanvas {
   canvas: CanvasSnapshot;
   locked: boolean;
+  sequence: number;
+  operations: Map<string, { type: DrawOp["type"]; fingerprints: Set<string>; strokeStyle?: string }>;
 }
 
 export interface MatchStateMachineOptions {
@@ -132,7 +134,7 @@ export class MatchStateMachine {
     );
   }
 
-  sendDrawOps(session: Session, ops: DrawOp[]): void {
+  sendDrawOps(session: Session, ops: DrawOp[]): boolean {
     const { player, progress } = this.requireArtistDrawing(session);
     this.requireBeforeDeadline(progress);
     const drawing = progress.canvases.get(player.id)!;
@@ -141,21 +143,64 @@ export class MatchStateMachine {
     }
 
     const next = cloneCanvas(drawing.canvas);
+    const previousSequence = drawing.sequence;
+    let sequence = previousSequence;
+    const operations = new Map(
+      [...drawing.operations].map(([id, entry]) => [
+        id,
+        { ...entry, fingerprints: new Set(entry.fingerprints) },
+      ]),
+    );
     for (const op of ops) {
+      const fingerprint = JSON.stringify(op);
+      const previous = operations.get(op.id);
+      if (previous) {
+        if (previous.fingerprints.has(fingerprint)) continue;
+        const strokeStyle =
+          op.type === "stroke"
+            ? JSON.stringify({ tool: op.tool, color: op.color, size: op.size })
+            : null;
+        if (
+          op.type !== "stroke" ||
+          previous.type !== "stroke" ||
+          previous.strokeStyle !== strokeStyle
+        ) {
+          throw new RoomServiceError("INVALID_INPUT", "The operation ID has already been used.");
+        }
+        previous.fingerprints.add(fingerprint);
+      } else {
+        operations.set(op.id, {
+          type: op.type,
+          fingerprints: new Set([fingerprint]),
+          ...(op.type === "stroke"
+            ? { strokeStyle: JSON.stringify({ tool: op.tool, color: op.color, size: op.size }) }
+            : {}),
+        });
+      }
+
       const canUndo = next.actions.length > 0;
+      const previousRevision = next.rev;
       const accepted = applyOps(next, [op]);
       if (accepted === 0 && !(op.type === "undo" && !canUndo)) {
         throw new RoomServiceError("REQUEST_FAILED", "The drawing operation could not be committed.");
       }
+      if (next.rev !== previousRevision) sequence += 1;
     }
     drawing.canvas = next;
+    drawing.sequence = sequence;
+    drawing.operations = operations;
+    return sequence !== previousSequence;
   }
 
   submitCanvas(session: Session): void {
     const { player, progress } = this.requireArtistDrawing(session);
     this.requireBeforeDeadline(progress);
     const drawing = progress.canvases.get(player.id)!;
+    if (drawing.locked) {
+      throw new RoomServiceError("FORBIDDEN", "Your drawing is already submitted.");
+    }
     drawing.locked = true;
+    drawing.sequence += 1;
   }
 
   getPlayerView(session: Session): PlayerView {
@@ -206,6 +251,18 @@ export class MatchStateMachine {
                   }
                 : null;
             })()
+          : null,
+      liveCanvases:
+        role === "judge" && progress.phase === "DRAWING"
+          ? assignment.artistIds.map((playerId, index) => {
+              const drawing = progress.canvases.get(playerId)!;
+              return {
+                label: `Artist ${index + 1}`,
+                sequence: drawing.sequence,
+                canvas: cloneCanvas(drawing.canvas),
+                locked: drawing.locked,
+              };
+            })
           : null,
       match: {
         roundIndex: progress.roundIndex,
@@ -438,7 +495,7 @@ export class MatchStateMachine {
     progress.canvases = new Map(
       assignment.artistIds.map((playerId) => [
         playerId,
-        { canvas: emptyCanvas(), locked: false },
+        { canvas: emptyCanvas(), locked: false, sequence: 0, operations: new Map() },
       ]),
     );
     this.transition(

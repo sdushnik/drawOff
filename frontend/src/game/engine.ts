@@ -447,7 +447,12 @@ export class GameEngine {
       // Judge only, anonymous labels only — never artist ids.
       liveCanvases:
         role === "judge" && room.phase === "DRAWING"
-          ? this.byLabel(round!.drawings).map((d) => ({ label: d.label, canvas: cloneCanvas(d.canvas), locked: d.locked }))
+          ? this.byLabel(round!.drawings).map((d) => ({
+              label: d.label,
+              sequence: d.canvas.rev,
+              canvas: cloneCanvas(d.canvas),
+              locked: d.locked,
+            }))
           : null,
       gallery:
         role === "judge" && room.phase === "JUDGING"

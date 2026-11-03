@@ -125,3 +125,26 @@ whitespace, accepts only 1–40 normalized characters, and rejects markup. The
 Judge does not submit in time. The finalized prompt is included in every
 Artist's and the Judge's personalized drawing, judging, and result views,
 including views sent when a session reconnects.
+
+## Live drawing synchronization
+
+During `DRAWING`, send `drawing:ops` with the attached Artist's authenticated
+session and an ordered array of shared `DrawOp` values. The session, not
+client-supplied artist, room, or recipient fields, determines which canvas is
+updated; undeclared fields are rejected. The server revalidates the room
+session, frozen Artist assignment, drawing phase, lock state, and its own
+deadline before applying the batch. An accepted batch is applied atomically in
+arrival order using the shared canvas operation format. Replayed operation IDs
+are idempotently ignored; reusing an ID for a different operation is rejected.
+Stroke segments may reuse their ID when their tool, color, and size match.
+There are no per-pixel events.
+
+Only the submitting Artist and current Judge receive drawing-related
+`state:update` events. Artist views contain only that Artist's `myCanvas`;
+Judge views contain `liveCanvases` in stable `Artist 1`, `Artist 2`, … order,
+without artist names or IDs. Each live canvas includes a sequence counter, its
+canvas revision (`canvas.rev`), lock state, and a complete snapshot. The
+sequence advances for each accepted canvas mutation and lock; duplicate or
+rejected operations do not change either counter. A reconnect or
+`state:subscribe` returns the complete current snapshot, so a client can recover
+without replaying missed updates.
