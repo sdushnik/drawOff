@@ -52,6 +52,80 @@ test("cycles and ratings accept only inclusive integer bounds without coercion",
   }
 });
 
+test("bounded names, prompts, operation IDs, strokes, and drawing coordinates accept inclusive limits", () => {
+  for (const name of ["ab", "a".repeat(20)]) {
+    assert.equal(
+      clientToServerPayloadSchemas["room:create"].safeParse({ name }).success,
+      true,
+      `player name length ${name.length}`,
+    );
+  }
+  for (const name of ["a", "a".repeat(21)]) {
+    assert.equal(
+      clientToServerPayloadSchemas["room:create"].safeParse({ name }).success,
+      false,
+      `player name length ${name.length}`,
+    );
+  }
+
+  for (const prompt of ["a", "a".repeat(40)]) {
+    assert.equal(
+      clientToServerPayloadSchemas["prompt:select"].safeParse({ session, prompt }).success,
+      true,
+      `prompt length ${prompt.length}`,
+    );
+  }
+  for (const prompt of ["", "a".repeat(41)]) {
+    assert.equal(
+      clientToServerPayloadSchemas["prompt:select"].safeParse({ session, prompt }).success,
+      false,
+      `prompt length ${prompt.length}`,
+    );
+  }
+
+  for (const id of ["x", "x".repeat(64)]) {
+    assert.equal(drawOpSchema.safeParse({ type: "clear", id }).success, true, `ID length ${id.length}`);
+  }
+  for (const id of ["", "x".repeat(65)]) {
+    assert.equal(drawOpSchema.safeParse({ type: "clear", id }).success, false, `ID length ${id.length}`);
+  }
+
+  const stroke = (size: number, points = [0, 0]) =>
+    drawOpSchema.safeParse({
+      type: "stroke",
+      id: "s1",
+      tool: "pen",
+      color: "#000000",
+      size,
+      points,
+    }).success;
+  for (const size of [1, 60]) assert.equal(stroke(size), true, `stroke size ${size}`);
+  for (const size of [0, 61]) assert.equal(stroke(size), false, `stroke size ${size}`);
+
+  assert.equal(stroke(1, [0, 0, 600, 450]), true, "stroke coordinate endpoints");
+  for (const points of [
+    [-0.1, 0],
+    [600.1, 0],
+    [0, -0.1],
+    [0, 450.1],
+  ]) {
+    assert.equal(stroke(1, points), false, `stroke rejects coordinates ${points}`);
+  }
+
+  const fill = (x: number, y: number) =>
+    drawOpSchema.safeParse({ type: "fill", id: "f1", x, y, color: "#000000" }).success;
+  assert.equal(fill(0, 0), true, "fill lower coordinate endpoints");
+  assert.equal(fill(600, 450), true, "fill upper coordinate endpoints");
+  for (const [x, y] of [
+    [-0.1, 0],
+    [600.1, 0],
+    [0, -0.1],
+    [0, 450.1],
+  ]) {
+    assert.equal(fill(x, y), false, `fill rejects coordinates ${x},${y}`);
+  }
+});
+
 test("phase and role schemas accept only their declared values", () => {
   assert.equal(phaseSchema.safeParse("LOBBY").success, true);
   assert.equal(phaseSchema.safeParse("MATCH_INTERRUPTED").success, true);
