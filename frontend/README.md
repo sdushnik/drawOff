@@ -35,3 +35,9 @@ backend origin. Running the frontend workspace by itself uses the in-browser
 mock unless `VITE_GAME_SERVER_URL` is set. The live service supports room
 creation/joining, roster updates, reconnect, leave, host kick, and cycle
 selection; the mock remains the full gameplay implementation.
+
+Judging uses the `GameService.submitRatings` interface. The browser mock
+submits to its local game engine; the live Socket.IO service currently returns
+an explicit unsupported-action error for rating submissions. It does not send
+ratings to a backend or report a successful live submission yet; live rating
+validation, scoring, and result handling are tracked separately in issue #18.

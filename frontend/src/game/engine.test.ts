@@ -281,10 +281,16 @@ describe("drawing privacy and canvas sync", () => {
 
   it("identities stay hidden from the judge during judging and are revealed after rating", () => {
     const ctx = toDrawing();
+    const liveCanvases = ctx.view(ctx.judge).liveCanvases!;
     ctx.advance(DRAWING_MS);
     const judging = ctx.view(ctx.judge);
+    expect(judging.gallery!.map((g) => g.label)).toEqual(liveCanvases.map((g) => g.label));
     expect(judging.gallery!.map((g) => g.label)).toEqual(["Drawing 1", "Drawing 2", "Drawing 3"]);
-    expect(JSON.stringify(judging.gallery)).not.toMatch(/p_/);
+    const anonymousGallery = JSON.stringify(judging.gallery);
+    for (const artist of ctx.artists) {
+      expect(anonymousGallery).not.toContain(artist.playerId);
+      expect(anonymousGallery).not.toContain(`Player ${ctx.players.indexOf(artist)}`);
+    }
     expect(judging.roundResult).toBeNull();
     expect(judging.prompt).toBe("owl");
     ctx.engine.submitRatings(ctx.code, ctx.judge.token, { "Drawing 1": 1, "Drawing 2": 2, "Drawing 3": 3 });

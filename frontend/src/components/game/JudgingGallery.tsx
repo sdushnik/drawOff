@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Gavel, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,7 @@ interface Props {
 export function JudgingGallery({ prompt, gallery, overtime, onSubmit }: Props) {
   const [ratings, setRatings] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+  const submissionInFlight = useRef(false);
 
   const parsed = useMemo(() => {
     const out: Record<string, number> = {};
@@ -35,10 +36,19 @@ export function JudgingGallery({ prompt, gallery, overtime, onSubmit }: Props) {
   const complete = rated === gallery.length;
 
   const submit = async () => {
-    if (!complete) return;
+    if (!complete || submissionInFlight.current) return;
+    submissionInFlight.current = true;
     setSubmitting(true);
-    const ok = await onSubmit(parsed);
-    if (!ok) setSubmitting(false);
+    try {
+      const succeeded = await onSubmit(parsed);
+      if (succeeded === false) {
+        submissionInFlight.current = false;
+        setSubmitting(false);
+      }
+    } catch {
+      submissionInFlight.current = false;
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -86,16 +96,21 @@ export function JudgingGallery({ prompt, gallery, overtime, onSubmit }: Props) {
                     className={cn(!valid && "opacity-60")}
                   />
                   <Input
+                    type="number"
                     aria-label={`${g.label} rating`}
+                    aria-describedby={invalid ? `${g.label}-rating-error` : undefined}
                     inputMode="numeric"
+                    min={0}
+                    max={100}
+                    step={1}
                     placeholder="0–100"
                     value={value}
-                    onChange={(e) => setRatings((r) => ({ ...r, [g.label]: e.target.value.replace(/[^\d]/g, "").slice(0, 3) }))}
+                    onChange={(e) => setRatings((r) => ({ ...r, [g.label]: e.target.value }))}
                     aria-invalid={invalid}
                     className={cn("w-20 text-center font-display text-lg font-bold", invalid && "border-destructive")}
                   />
                 </div>
-                {invalid && <p className="text-xs font-semibold text-destructive">Whole number from 0 to 100.</p>}
+                {invalid && <p id={`${g.label}-rating-error`} className="text-xs font-semibold text-destructive">Whole number from 0 to 100.</p>}
               </div>
             </article>
           );
@@ -104,7 +119,7 @@ export function JudgingGallery({ prompt, gallery, overtime, onSubmit }: Props) {
 
       <div className="sticky bottom-3 z-10 flex justify-center">
         <Button variant="hero" size="xl" disabled={!complete || submitting} onClick={submit}>
-          <Gavel /> {complete ? "Submit all ratings" : `Rate ${gallery.length - rated} more`}
+          <Gavel /> {submitting ? "Submitting…" : complete ? "Submit all ratings" : `Rate ${gallery.length - rated} more`}
         </Button>
       </div>
     </div>
