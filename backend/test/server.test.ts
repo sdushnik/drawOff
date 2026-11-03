@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import { Writable } from "node:stream";
 import { test } from "node:test";
 import Fastify from "fastify";
+import { io as createSocketClient } from "socket.io-client";
 import {
   healthResponseSchema,
   serviceErrorPayloadSchema,
 } from "@drawoff/contracts";
 import {
   createServer,
+  resolveCorsOrigins,
   registerHealthRoute,
   startServer,
 } from "../src/server.js";
@@ -28,6 +30,107 @@ test("backend starts with Fastify and Socket.IO", async () => {
   } finally {
     await closeServer(io);
   }
+});
+
+test("configured frontend origin can use HTTP and create a room over Socket.IO polling", async () => {
+  const frontendOrigin = "http://127.0.0.1:8080";
+  const { app, io } = createServer({
+    logger: false,
+    corsOrigins: [frontendOrigin],
+  });
+  const address = await app.listen({ host: "127.0.0.1", port: 0 });
+  const socket = createSocketClient(address, {
+    autoConnect: false,
+    reconnection: false,
+    extraHeaders: { Origin: frontendOrigin },
+  });
+
+  try {
+    const health = await fetch(`${address}/health`, {
+      headers: { Origin: frontendOrigin },
+    });
+    assert.equal(health.status, 200);
+    assert.equal(health.headers.get("access-control-allow-origin"), frontendOrigin);
+    assert.equal(health.headers.get("access-control-allow-credentials"), "true");
+
+    const preflight = await fetch(`${address}/health`, {
+      method: "OPTIONS",
+      headers: {
+        Origin: frontendOrigin,
+        "Access-Control-Request-Method": "GET",
+      },
+    });
+    assert.equal(preflight.status, 204);
+    assert.equal(preflight.headers.get("access-control-allow-origin"), frontendOrigin);
+    assert.equal(preflight.headers.get("access-control-allow-credentials"), "true");
+
+    const polling = await fetch(
+      `${address}/socket.io/?EIO=4&transport=polling&t=${Date.now()}`,
+      { headers: { Origin: frontendOrigin } },
+    );
+    assert.equal(polling.status, 200);
+    assert.equal(polling.headers.get("access-control-allow-origin"), frontendOrigin);
+    assert.equal(polling.headers.get("access-control-allow-credentials"), "true");
+    const handshake = await polling.text();
+    assert.match(handshake, /^0\{/);
+    const pollingSessionId = (JSON.parse(handshake.slice(1)) as { sid: string }).sid;
+    await fetch(
+      `${address}/socket.io/?EIO=4&transport=polling&sid=${encodeURIComponent(pollingSessionId)}`,
+      {
+        method: "POST",
+        headers: {
+          Origin: frontendOrigin,
+          "Content-Type": "text/plain;charset=UTF-8",
+        },
+        body: "1",
+      },
+    );
+
+    await new Promise<void>((resolve, reject) => {
+      socket.once("connect", resolve);
+      socket.once("connect_error", reject);
+      socket.connect();
+    });
+    const created = await new Promise<unknown>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("Room creation timed out.")), 2_000);
+      socket.emit("room:create", { name: "QA Artist" }, (response: unknown) => {
+        clearTimeout(timeout);
+        resolve(response);
+      });
+    });
+    assert.equal(typeof created, "object");
+    assert.ok(created !== null && "session" in created);
+
+    const rejectedOrigin = await fetch(`${address}/health`, {
+      headers: { Origin: "https://untrusted.example" },
+    });
+    assert.equal(rejectedOrigin.headers.has("access-control-allow-origin"), false);
+  } finally {
+    socket.disconnect();
+    await new Promise<void>((resolve) => io.close(() => resolve()));
+  }
+});
+
+test("CORS origins are explicit in production and reject wildcard origins", () => {
+  assert.deepEqual(
+    resolveCorsOrigins({
+      NODE_ENV: "production",
+      FRONTEND_ORIGINS: "https://draw.example,https://admin.example",
+    }),
+    ["https://draw.example", "https://admin.example"],
+  );
+  assert.throws(
+    () => resolveCorsOrigins({ NODE_ENV: "production" }),
+    /FRONTEND_ORIGINS must be configured in production/,
+  );
+  assert.throws(
+    () =>
+      resolveCorsOrigins({
+        NODE_ENV: "production",
+        FRONTEND_ORIGINS: "*",
+      }),
+    /Invalid frontend origin/,
+  );
 });
 
 test("GET /health reports ready after Fastify initialization", async () => {

@@ -1,5 +1,15 @@
 # Backend HTTP behavior
 
+## Frontend origins
+
+HTTP routes and Socket.IO polling use the same explicit CORS origin allowlist.
+For local development, the backend allows `http://localhost` and
+`http://127.0.0.1` on ports 5173 and 8080. For deployment, configure
+`FRONTEND_ORIGINS` as a comma-separated list of exact `http://` or `https://`
+origins, such as `https://draw.example`. Production startup fails if the
+variable is missing or contains an invalid origin; wildcard origins are
+rejected. Credentialed requests are enabled only for listed origins.
+
 `GET /health` is a readiness check, not a process-liveness check. It returns
 HTTP 200 with `{"status":"ready"}` only after Fastify's initialization hooks
 complete and the Socket.IO server has been created. If the app is not ready, it

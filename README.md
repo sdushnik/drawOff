@@ -29,6 +29,12 @@ npm run dev
 The frontend is served by Vite. The backend listens on port `3000` by default;
 set `PORT` or `HOST` to override its listener.
 
+The backend allows the local Vite origins on ports 5173 and 8080 in
+development. In production, set `FRONTEND_ORIGINS` to a comma-separated list
+of exact frontend origins (for example, `https://draw.example`). The same
+allowlist is used for HTTP and Socket.IO, with credentialed CORS enabled; a
+wildcard origin is not accepted.
+
 ## Test
 
 Run the test suites for all workspaces:

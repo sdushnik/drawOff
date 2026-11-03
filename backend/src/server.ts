@@ -3,6 +3,7 @@ import Fastify, {
   type FastifyReply,
   type FastifyServerOptions,
 } from "fastify";
+import cors from "@fastify/cors";
 import { Server as SocketIOServer, type Socket } from "socket.io";
 import type {
   ClientToServerPayloads,
@@ -42,6 +43,60 @@ export interface RunningServer {
   app: FastifyInstance;
   io: SocketIOServer;
   address: string;
+}
+
+const developmentOrigins = [
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://localhost:8080",
+  "http://127.0.0.1:8080",
+];
+
+function validateCorsOrigins(origins: readonly string[]): string[] {
+  if (origins.length === 0) {
+    throw new Error("At least one explicit frontend origin must be configured.");
+  }
+
+  return [
+    ...new Set(
+      origins.map((value) => {
+        const origin = value.trim();
+        let url: URL;
+        try {
+          url = new URL(origin);
+        } catch {
+          throw new Error(`Invalid frontend origin: ${origin || "(empty)"}`);
+        }
+
+        if (
+          origin === "*" ||
+          (url.protocol !== "http:" && url.protocol !== "https:") ||
+          url.origin !== origin ||
+          url.username !== "" ||
+          url.password !== ""
+        ) {
+          throw new Error(`Invalid frontend origin: ${origin}`);
+        }
+
+        return origin;
+      }),
+    ),
+  ];
+}
+
+export function resolveCorsOrigins(
+  environment: NodeJS.ProcessEnv = process.env,
+): string[] {
+  const configuredOrigins = environment["FRONTEND_ORIGINS"];
+  if (configuredOrigins !== undefined) {
+    return validateCorsOrigins(configuredOrigins.split(","));
+  }
+
+  if (environment["NODE_ENV"] === "production") {
+    throw new Error("FRONTEND_ORIGINS must be configured in production.");
+  }
+
+  return [...developmentOrigins];
 }
 
 interface RuntimeSchema<T> {
@@ -409,12 +464,23 @@ export function registerHealthRoute(app: FastifyInstance, isReady: () => boolean
 export function createServer(
   options: {
     logger?: FastifyServerOptions["logger"];
+    corsOrigins?: readonly string[];
     roomService?: RoomService;
     matchStateMachineOptions?: Omit<MatchStateMachineOptions, "onTransition">;
   } = {},
 ) {
+  const corsOrigins = validateCorsOrigins(options.corsOrigins ?? resolveCorsOrigins());
   const app = Fastify({ logger: options.logger ?? true });
-  const io = new SocketIOServer<ClientSocketEvents, ServerSocketEvents>(app.server);
+  void app.register(cors, {
+    origin: corsOrigins,
+    credentials: true,
+  });
+  const io = new SocketIOServer<ClientSocketEvents, ServerSocketEvents>(app.server, {
+    cors: {
+      origin: corsOrigins,
+      credentials: true,
+    },
+  });
   registerRoomHandlers(
     io,
     options.roomService ?? createRoomService(),
@@ -474,9 +540,9 @@ export function createServer(
 }
 
 export async function startServer(
-  options: { host?: string; port?: number } = {},
+  options: { host?: string; port?: number; corsOrigins?: readonly string[] } = {},
 ): Promise<RunningServer> {
-  const { app, io } = createServer();
+  const { app, io } = createServer({ corsOrigins: options.corsOrigins });
   const address = await app.listen({
     host: options.host ?? "0.0.0.0",
     port: options.port ?? 3000,
