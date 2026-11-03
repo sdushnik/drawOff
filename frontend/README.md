@@ -27,3 +27,9 @@ cd <repository-name>
 npm i
 npm run dev
 ```
+
+The browser uses the local mock game service by default. To use the live
+Socket.IO lobby, set `VITE_GAME_SERVER_URL` to the backend origin before
+starting the frontend (for example, `http://localhost:3000`). The live service
+supports room creation/joining, roster updates, reconnect, leave, host kick,
+and cycle selection; the mock remains the full gameplay implementation.

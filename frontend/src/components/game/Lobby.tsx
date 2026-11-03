@@ -33,10 +33,19 @@ export function Lobby({ view, room, onLeave }: { view: PlayerView; room: GameRoo
     <div className="mx-auto grid w-full max-w-5xl gap-6 lg:grid-cols-[1.1fr_1fr]">
       <section className="sticker p-5">
         <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-extrabold">Players</h2>
+          <h2 id="room-roster-heading" className="text-2xl font-extrabold">Players</h2>
           <span className="font-display text-lg font-bold">{view.players.length}</span>
         </div>
-        <ul className="mt-4 flex flex-col gap-2">
+        <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+          Room {view.roomCode} roster:{" "}
+          {view.players
+            .map(
+              (player) =>
+                `${player.name}${player.isHost ? ", host" : ""}, ${player.connected ? "connected" : "disconnected"}`,
+            )
+            .join("; ")}
+        </p>
+        <ul aria-labelledby="room-roster-heading" className="mt-4 flex flex-col gap-2">
           {view.players.map((p, i) => (
             <li
               key={p.id}
@@ -58,13 +67,23 @@ export function Lobby({ view, room, onLeave }: { view: PlayerView; room: GameRoo
                 {p.name}
                 {p.id === view.me.id && <span className="text-muted-foreground"> (you)</span>}
               </span>
-              {p.isHost && <Crown className="size-5 text-secondary-foreground" aria-label="Host" />}
+              {p.isHost && (
+                <span className="inline-flex items-center gap-1">
+                  <Crown className="size-5 text-secondary-foreground" aria-hidden="true" />
+                  <span className="sr-only">Host</span>
+                </span>
+              )}
               {p.isBot && (
                 <span className="inline-flex items-center gap-1 rounded-full border-2 border-ink bg-muted px-2 text-xs font-bold">
                   <Bot className="size-3" /> demo
                 </span>
               )}
-              {!p.connected && <WifiOff className="size-4" aria-label="Disconnected" />}
+              {!p.connected && (
+                <span className="inline-flex items-center gap-1">
+                  <WifiOff className="size-4" aria-hidden="true" />
+                  <span className="sr-only">Disconnected</span>
+                </span>
+              )}
               {isHost && p.id !== view.me.id && (
                 <Button
                   variant="ghost"

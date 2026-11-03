@@ -8,6 +8,7 @@ import type {
   ClientToServerPayloads,
   ClientToServerResponses,
   ServerToClientPayloads,
+  Session,
 } from "@drawoff/contracts";
 import {
   clientToServerPayloadSchemas,
@@ -87,7 +88,103 @@ function handleSocketRequest<TPayload, TResponse>(
 }
 
 function registerRoomHandlers(io: SocketIOServer, roomService: RoomService): void {
+  const attachedSessions = new Map<string, Session>();
+  const playerSockets = new Map<string, Set<string>>();
+
+  const playerKey = (session: Session) => `${session.roomCode}:${session.playerId}`;
+
+  const publishRoom = (roomCode: string) => {
+    try {
+      roomService.getRoom(roomCode);
+    } catch {
+      return;
+    }
+
+    for (const socketId of io.sockets.adapter.rooms.get(roomCode) ?? []) {
+      const session = attachedSessions.get(socketId);
+      if (!session || session.roomCode !== roomCode) continue;
+
+      const socket = io.sockets.sockets.get(socketId);
+      if (!socket) continue;
+      try {
+        socket.emit("state:update", roomService.getLobbyView(session));
+      } catch {
+        socket.leave(roomCode);
+        attachedSessions.delete(socketId);
+      }
+    }
+  };
+
+  const detach = (
+    socket: Socket<ClientSocketEvents, ServerSocketEvents>,
+    markDisconnected: boolean,
+  ) => {
+    const session = attachedSessions.get(socket.id);
+    if (!session) return;
+    attachedSessions.delete(socket.id);
+    socket.leave(session.roomCode);
+
+    const key = playerKey(session);
+    const sockets = playerSockets.get(key);
+    sockets?.delete(socket.id);
+    if (sockets?.size === 0) {
+      playerSockets.delete(key);
+      if (markDisconnected) {
+        try {
+          roomService.setConnected(session, false);
+          publishRoom(session.roomCode);
+        } catch {
+          // The room or player may already have been removed.
+        }
+      }
+    }
+  };
+
+  const attach = (
+    socket: Socket<ClientSocketEvents, ServerSocketEvents>,
+    unverifiedSession: Session,
+  ) => {
+    const session = roomService.resumeSession(unverifiedSession);
+    const currentSession = attachedSessions.get(socket.id);
+    if (
+      currentSession &&
+      (currentSession.roomCode !== session.roomCode ||
+        currentSession.playerId !== session.playerId)
+    ) {
+      detach(socket, true);
+    }
+
+    const key = playerKey(session);
+    let sockets = playerSockets.get(key);
+    if (!sockets) {
+      sockets = new Set();
+      playerSockets.set(key, sockets);
+    }
+    const wasDisconnected = sockets.size === 0;
+    sockets.add(socket.id);
+    attachedSessions.set(socket.id, session);
+    void socket.join(session.roomCode);
+    if (wasDisconnected) roomService.setConnected(session, true);
+    return session;
+  };
+
+  const assertAttached = (
+    socket: Socket<ClientSocketEvents, ServerSocketEvents>,
+    session: Session,
+  ) => {
+    const attached = attachedSessions.get(socket.id);
+    if (
+      !attached ||
+      attached.roomCode !== session.roomCode ||
+      attached.playerId !== session.playerId
+    ) {
+      throw new RoomServiceError("UNAUTHORIZED", "Attach your session before changing the room.");
+    }
+  };
+
   io.on("connection", (socket) => {
+    socket.on("disconnect", () => detach(socket, true));
+
     socket.on("room:create", (payload, acknowledge) => {
       handleSocketRequest(
         socket,
@@ -95,7 +192,12 @@ function registerRoomHandlers(io: SocketIOServer, roomService: RoomService): voi
         clientToServerPayloadSchemas["room:create"],
         clientToServerResponseSchemas["room:create"],
         acknowledge,
-        ({ name }) => ({ session: roomService.createRoom(name) }),
+        ({ name }) => {
+          const session = roomService.createRoom(name);
+          attach(socket, session);
+          publishRoom(session.roomCode);
+          return { session };
+        },
       );
     });
 
@@ -106,7 +208,12 @@ function registerRoomHandlers(io: SocketIOServer, roomService: RoomService): voi
         clientToServerPayloadSchemas["room:join"],
         clientToServerResponseSchemas["room:join"],
         acknowledge,
-        ({ code, name }) => ({ session: roomService.joinRoom(code, name) }),
+        ({ code, name }) => {
+          const session = roomService.joinRoom(code, name);
+          attach(socket, session);
+          publishRoom(session.roomCode);
+          return { session };
+        },
       );
     });
 
@@ -117,7 +224,26 @@ function registerRoomHandlers(io: SocketIOServer, roomService: RoomService): voi
         clientToServerPayloadSchemas["session:resume"],
         clientToServerResponseSchemas["session:resume"],
         acknowledge,
-        ({ session }) => ({ session: roomService.resumeSession(session) }),
+        ({ session }) => {
+          const resumed = attach(socket, session);
+          publishRoom(resumed.roomCode);
+          return { session: resumed };
+        },
+      );
+    });
+
+    socket.on("state:subscribe", (payload, acknowledge) => {
+      handleSocketRequest(
+        socket,
+        payload,
+        clientToServerPayloadSchemas["state:subscribe"],
+        clientToServerResponseSchemas["state:subscribe"],
+        acknowledge,
+        ({ session }) => {
+          const attached = attach(socket, session);
+          publishRoom(attached.roomCode);
+          return {};
+        },
       );
     });
 
@@ -129,7 +255,10 @@ function registerRoomHandlers(io: SocketIOServer, roomService: RoomService): voi
         clientToServerResponseSchemas["room:leave"],
         acknowledge,
         ({ session }) => {
+          assertAttached(socket, session);
           roomService.leaveRoom(session);
+          detach(socket, false);
+          publishRoom(session.roomCode);
           return {};
         },
       );
@@ -143,7 +272,34 @@ function registerRoomHandlers(io: SocketIOServer, roomService: RoomService): voi
         clientToServerResponseSchemas["player:kick"],
         acknowledge,
         ({ session, playerId }) => {
+          assertAttached(socket, session);
           roomService.kickPlayer(session, playerId);
+          for (const [socketId, attached] of attachedSessions) {
+            if (
+              attached.roomCode === session.roomCode &&
+              attached.playerId === playerId
+            ) {
+              const target = io.sockets.sockets.get(socketId);
+              if (target) detach(target, false);
+            }
+          }
+          publishRoom(session.roomCode);
+          return {};
+        },
+      );
+    });
+
+    socket.on("match:set-cycles", (payload, acknowledge) => {
+      handleSocketRequest(
+        socket,
+        payload,
+        clientToServerPayloadSchemas["match:set-cycles"],
+        clientToServerResponseSchemas["match:set-cycles"],
+        acknowledge,
+        ({ session, cycles }) => {
+          assertAttached(socket, session);
+          roomService.setCycles(session, cycles);
+          publishRoom(session.roomCode);
           return {};
         },
       );

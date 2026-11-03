@@ -44,10 +44,23 @@ The shared Socket.IO contract uses `session:resume` with the same `Session`
 shape returned by `room:create` and `room:join`; raw tokens must not be put in
 room codes, invite URLs, logs, or room state.
 
-The backend registers Socket.IO handlers for `room:create`, `room:join`,
-`session:resume`, `room:leave`, and `player:kick`. Successful requests are
-acknowledged only to the requesting socket using the shared response schemas.
-Failures emit the shared `error` payload to that socket; the server does not
-log request payloads or include submitted credentials in errors. Resume, leave,
-and kick pass the submitted session to `RoomService` for room-and-player token
-verification; a client-supplied player ID by itself is never authorization.
+The backend registers Socket.IO handlers for room creation, joining, session
+resume, subscription, leave, host kick, and host cycle selection. A successful
+create or join attaches the authenticated socket to its room and sends every
+connected member a personalized `state:update` containing the server-owned
+roster, host, cycle selection, and connection state. The same room-only updates
+are sent after joins, leaves, disconnects, reconnects, and cycle changes.
+Reconnect with the saved session using `session:resume`; the player keeps their
+identity and is marked connected again. `state:subscribe` reattaches the
+session and returns the initial view. Room invite URLs use `/room/{code}` and
+the frontend route accepts that link as its join flow.
+
+Successful requests are acknowledged only to the requesting socket using the
+shared response schemas. Failures emit the shared `error` payload to that
+socket; the server does not log request payloads or include submitted
+credentials in errors. Resume, leave, kick, and cycle changes pass the
+submitted session to `RoomService` for room-and-player token verification; a
+client-supplied player ID by itself is never authorization. New joins to a room
+marked as having an active match fail with `MATCH_IN_PROGRESS` before
+membership or any roster update changes. This backend currently implements
+lobby synchronization, not the subsequent gameplay actions.

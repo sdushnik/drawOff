@@ -51,7 +51,7 @@ test("room creation normalizes the host name and returns a typed session", () =>
   assert.match(session.token, /^[A-Za-z0-9_-]{43}$/);
   assert.equal(sessionSchema.safeParse(session).success, true);
   assert.deepEqual(service.getRoom(session.roomCode).players, [
-    { id: "player-1", name: "Ada Artist", isHost: true },
+    { id: "player-1", name: "Ada Artist", isHost: true, connected: false },
   ]);
 });
 
@@ -83,6 +83,7 @@ test("joining by bare code or invite link adds any number of guests and returns 
     id: guest.playerId,
     name: "Guest One",
     isHost: false,
+    connected: false,
   });
 });
 
@@ -307,7 +308,9 @@ test("a host leaving revokes their session and promotes the next player", () => 
 
   const room = service.getRoom(host.roomCode);
   assert.equal(room.hostId, guest.playerId);
-  assert.deepEqual(room.players, [{ id: guest.playerId, name: "Guest", isHost: true }]);
+  assert.deepEqual(room.players, [
+    { id: guest.playerId, name: "Guest", isHost: true, connected: false },
+  ]);
   expectRoomError(() => service.resumeSession(host), "UNAUTHORIZED");
   assert.deepEqual(service.resumeSession(guest), guest);
 });

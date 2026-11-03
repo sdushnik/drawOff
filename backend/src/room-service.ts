@@ -7,7 +7,10 @@ import {
 } from "node:crypto";
 import {
   playerSummarySchema,
+  playerViewSchema,
   sessionSchema,
+  type Cycles,
+  type PlayerView,
   type ServiceErrorCode,
   type Session,
 } from "@drawoff/contracts";
@@ -35,6 +38,7 @@ export interface RoomPlayer {
   readonly id: string;
   readonly name: string;
   readonly isHost: boolean;
+  connected: boolean;
 }
 
 export interface RoomSnapshot {
@@ -61,6 +65,7 @@ interface RoomRecord {
   hostId: string;
   players: RoomPlayerRecord[];
   matchInProgress: boolean;
+  cycles: Cycles;
   expiresAt: number;
 }
 
@@ -141,6 +146,7 @@ export class RoomService {
       hostId: playerId,
       players: [player],
       matchInProgress: false,
+      cycles: 1,
       expiresAt,
     });
 
@@ -271,9 +277,53 @@ export class RoomService {
         id: playerId,
         name,
         isHost,
+        connected: false,
         sessionTokenHash: hashSessionToken(token),
       },
     };
+  }
+
+  setConnected(session: Session, connected: boolean): void {
+    const { player } = this.authenticate(session);
+    player.connected = connected;
+  }
+
+  setCycles(session: Session, cycles: Cycles): void {
+    const { room, player } = this.authenticate(session);
+    if (player.id !== room.hostId) {
+      throw new RoomServiceError("FORBIDDEN", "Only the host can change match length.");
+    }
+    if (room.matchInProgress) {
+      throw new RoomServiceError("WRONG_PHASE", "Match length can only be changed in the lobby.");
+    }
+    room.cycles = cycles;
+  }
+
+  getLobbyView(session: Session): PlayerView {
+    const { room, player } = this.authenticate(session);
+    return playerViewSchema.parse({
+      roomCode: room.code,
+      serverNow: this.readClock(),
+      me: this.toPlayerSummary(player),
+      players: room.players.map((roomPlayer) => this.toPlayerSummary(roomPlayer)),
+      hostId: room.hostId,
+      cycles: room.cycles,
+      phase: "LOBBY",
+      deadline: null,
+      pause: null,
+      notice: null,
+      match: null,
+      role: null,
+      prompt: null,
+      suggestions: null,
+      myCanvas: null,
+      liveCanvases: null,
+      gallery: null,
+      judgingOvertime: false,
+      roundResult: null,
+      finalResult: null,
+      interruptedReason: null,
+    });
   }
 
   private authenticate(session: Session): {
@@ -349,9 +399,24 @@ export class RoomService {
     return {
       code: room.code,
       hostId: room.hostId,
-      players: room.players.map(({ id, name, isHost }) => ({ id, name, isHost })),
+      players: room.players.map(({ id, name, isHost, connected }) => ({
+        id,
+        name,
+        isHost,
+        connected,
+      })),
       matchInProgress: room.matchInProgress,
       expiresAt: room.expiresAt,
+    };
+  }
+
+  private toPlayerSummary(player: RoomPlayerRecord) {
+    return {
+      id: player.id,
+      name: player.name,
+      isHost: player.isHost,
+      connected: player.connected,
+      isBot: false,
     };
   }
 }

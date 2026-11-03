@@ -7,6 +7,7 @@ import {
   serviceErrorPayloadSchema,
   type ClientToServerPayloads,
   type ClientToServerResponses,
+  type PlayerView,
   type ServiceErrorPayload,
 } from "@drawoff/contracts";
 import { io as createSocketClient, type Socket as ClientSocket } from "socket.io-client";
@@ -22,6 +23,7 @@ type ClientEvents = {
 
 type ServerEvents = {
   error: (payload: ServiceErrorPayload) => void;
+  "state:update": (view: PlayerView) => void;
 };
 
 type TestSocket = ClientSocket<ServerEvents, ClientEvents>;
@@ -69,6 +71,25 @@ async function connect(address: string): Promise<TestSocket> {
     socket.connect();
   });
   return socket;
+}
+
+function waitForRoster(
+  socket: TestSocket,
+  predicate: (view: PlayerView) => boolean,
+): Promise<PlayerView> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      socket.off("state:update", onView);
+      reject(new Error("Timed out waiting for a room roster update."));
+    }, 2_000);
+    const onView = (view: PlayerView) => {
+      if (!predicate(view)) return;
+      clearTimeout(timer);
+      socket.off("state:update", onView);
+      resolve(view);
+    };
+    socket.on("state:update", onView);
+  });
 }
 
 test("room create, join, and resume requests return and authenticate room-scoped sessions", async () => {
@@ -165,6 +186,192 @@ test("room create, join, and resume requests return and authenticate room-scoped
     hostSocket.disconnect();
     guestSocket.disconnect();
     otherRoomSocket.disconnect();
+    await new Promise<void>((resolve) => io.close(() => resolve()));
+  }
+});
+
+test("live room rosters cover create, join, leave, disconnect, reconnect, and room isolation", async () => {
+  const service = new RoomService();
+  const { app, io } = createServer({ logger: false, roomService: service });
+  const address = await app.listen({ host: "127.0.0.1", port: 0 });
+  const hostSocket = await connect(address);
+  const guestSocket = await connect(address);
+  const otherRoomSocket = await connect(address);
+  const outsiderSocket = await connect(address);
+  const hostViews: PlayerView[] = [];
+  const guestViews: PlayerView[] = [];
+  const otherRoomViews: PlayerView[] = [];
+  hostSocket.on("state:update", (view) => hostViews.push(view));
+  guestSocket.on("state:update", (view) => guestViews.push(view));
+  otherRoomSocket.on("state:update", (view) => otherRoomViews.push(view));
+
+  try {
+    const created = await request(hostSocket, "room:create", { name: "Host" });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+    const host = created.response.session;
+    const initialHostView = hostViews.at(-1);
+    assert.ok(initialHostView);
+    assert.equal(initialHostView.roomCode, host.roomCode);
+    assert.deepEqual(initialHostView.players.map(({ name, isHost, connected }) => ({
+      name,
+      isHost,
+      connected,
+    })), [{ name: "Host", isHost: true, connected: true }]);
+
+    const joinPromise = waitForRoster(
+      hostSocket,
+      (view) => view.players.some(({ name }) => name === "Guest"),
+    );
+    const joined = await request(guestSocket, "room:join", {
+      code: `https://draw.example/room/${host.roomCode}`,
+      name: "Guest",
+    });
+    assert.equal(joined.ok, true);
+    if (!joined.ok) return;
+    const guest = joined.response.session;
+    const joinedHostView = await joinPromise;
+    const joinedGuestView = guestViews.at(-1);
+    assert.ok(joinedGuestView);
+    assert.deepEqual(
+      joinedHostView.players.map(({ name, isHost, connected }) => ({
+        name,
+        isHost,
+        connected,
+      })),
+      [
+        { name: "Host", isHost: true, connected: true },
+        { name: "Guest", isHost: false, connected: true },
+      ],
+    );
+    assert.deepEqual(joinedGuestView.players, joinedHostView.players);
+
+    const hostCycleUpdate = waitForRoster(hostSocket, (view) => view.cycles === 2);
+    const guestCycleUpdate = waitForRoster(guestSocket, (view) => view.cycles === 2);
+    const rejectedCycleChange = await request(guestSocket, "match:set-cycles", {
+      session: guest,
+      cycles: 2,
+    });
+    assert.equal(rejectedCycleChange.ok, false);
+    if (!rejectedCycleChange.ok) assert.equal(rejectedCycleChange.error.code, "FORBIDDEN");
+    assert.deepEqual(
+      await request(hostSocket, "match:set-cycles", { session: host, cycles: 2 }),
+      { ok: true, response: {} },
+    );
+    await Promise.all([hostCycleUpdate, guestCycleUpdate]);
+
+    const guestOffline = waitForRoster(
+      hostSocket,
+      (view) => view.players.some(({ id, connected }) => id === guest.playerId && !connected),
+    );
+    guestSocket.disconnect();
+    await guestOffline;
+
+    await new Promise<void>((resolve, reject) => {
+      guestSocket.once("connect", resolve);
+      guestSocket.once("connect_error", reject);
+      guestSocket.connect();
+    });
+    const guestOnline = waitForRoster(
+      hostSocket,
+      (view) => view.players.some(({ id, connected }) => id === guest.playerId && connected),
+    );
+    const guestReconnectView = waitForRoster(
+      guestSocket,
+      (view) => view.players.some(({ id, connected }) => id === guest.playerId && connected),
+    );
+    assert.deepEqual(
+      await request(guestSocket, "session:resume", { session: guest }),
+      { ok: true, response: { session: guest } },
+    );
+    await Promise.all([guestOnline, guestReconnectView]);
+
+    const hostViewCountBeforeOtherRoom = hostViews.length;
+    const otherCreated = await request(otherRoomSocket, "room:create", { name: "Other Host" });
+    assert.equal(otherCreated.ok, true);
+    if (!otherCreated.ok) return;
+    const otherHost = otherCreated.response.session;
+    const otherJoinPromise = waitForRoster(
+      otherRoomSocket,
+      (view) => view.players.some(({ name }) => name === "Other Guest"),
+    );
+    const otherJoined = await request(outsiderSocket, "room:join", {
+      code: otherHost.roomCode,
+      name: "Other Guest",
+    });
+    assert.equal(otherJoined.ok, true);
+    if (!otherJoined.ok) return;
+    await otherJoinPromise;
+    assert.equal(hostViews.length, hostViewCountBeforeOtherRoom);
+    assert.equal(
+      hostViews.at(-1)?.players.some(({ name }) => name.startsWith("Other")),
+      false,
+    );
+    assert.equal(
+      otherRoomViews.at(-1)?.players.some(({ name }) => name === "Guest"),
+      false,
+    );
+
+    const guestLeft = waitForRoster(
+      hostSocket,
+      (view) => !view.players.some(({ id }) => id === guest.playerId),
+    );
+    assert.deepEqual(await request(guestSocket, "room:leave", { session: guest }), {
+      ok: true,
+      response: {},
+    });
+    const afterLeave = await guestLeft;
+    assert.deepEqual(afterLeave.players.map(({ name }) => name), ["Host"]);
+
+    const third = await request(guestSocket, "room:join", {
+      code: host.roomCode,
+      name: "Third",
+    });
+    assert.equal(third.ok, true);
+    if (!third.ok) return;
+    const thirdSession = third.response.session;
+    const fourthSocket = await connect(address);
+    try {
+      const fourth = await request(fourthSocket, "room:join", {
+        code: host.roomCode,
+        name: "Fourth",
+      });
+      assert.equal(fourth.ok, true);
+      if (!fourth.ok) return;
+
+      const beforeRejectedJoin = service.getRoom(host.roomCode);
+      const hostUpdateCount = hostViews.length;
+      const thirdUpdateCount = guestViews.length;
+      service.setMatchInProgress(host.roomCode, true);
+      const rejected = await request(outsiderSocket, "room:join", {
+        code: host.roomCode,
+        name: "Late Entrant",
+      });
+      assert.equal(rejected.ok, false);
+      if (!rejected.ok) {
+        assert.equal(rejected.error.code, "MATCH_IN_PROGRESS");
+        assert.match(rejected.error.message, /active match/i);
+      }
+      assert.deepEqual(service.getRoom(host.roomCode).players, beforeRejectedJoin.players);
+      await new Promise<void>((resolve) => setTimeout(resolve, 30));
+      assert.equal(hostViews.length, hostUpdateCount);
+      assert.equal(guestViews.length, thirdUpdateCount);
+      assert.equal(
+        hostViews.at(-1)?.players.some(({ name }) => name === "Late Entrant"),
+        false,
+      );
+      assert.deepEqual(await request(guestSocket, "session:resume", { session: thirdSession }), {
+        ok: true,
+        response: { session: thirdSession },
+      });
+    } finally {
+      fourthSocket.disconnect();
+    }
+  } finally {
+    hostSocket.disconnect();
+    guestSocket.disconnect();
+    otherRoomSocket.disconnect();
+    outsiderSocket.disconnect();
     await new Promise<void>((resolve) => io.close(() => resolve()));
   }
 });
