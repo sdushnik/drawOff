@@ -6,9 +6,10 @@ import {
   type CanvasSnapshot,
   type DrawOp,
   type PlayerView,
+  type RoundResult,
   type Session,
 } from "@drawoff/contracts";
-import { playerViewSchema } from "@drawoff/contracts";
+import { playerViewSchema, roundResultSchema } from "@drawoff/contracts";
 import {
   getMatchRoundAssignment,
   RoomService,
@@ -43,6 +44,9 @@ interface MatchProgress {
   prompt: string | null;
   usedPrompts: string[];
   canvases: Map<string, ArtistCanvas>;
+  scores: Record<string, number>;
+  judgeRatings: Record<string, number> | null;
+  roundResult: RoundResult | null;
   generation: number;
   timer: TimerHandle | null;
 }
@@ -103,6 +107,9 @@ export class MatchStateMachine {
       prompt: null,
       usedPrompts: [],
       canvases: new Map(),
+      scores: Object.fromEntries(room.matchSchedule.order.map((playerId) => [playerId, 0])),
+      judgeRatings: null,
+      roundResult: null,
       generation: 0,
       timer: null,
     };
@@ -120,17 +127,93 @@ export class MatchStateMachine {
     this.finalizePrompt(session.roomCode, progress, prompt);
   }
 
-  /** Called by rating handling after ratings have been accepted and recorded. */
-  finishJudging(session: Session): void {
+  submitRatings(session: Session, rawRatings: unknown): void {
     const { room, player, progress } = this.requireMatchMember(session);
-    this.requirePhase(progress, "JUDGING");
     this.requireJudge(room, player.id, progress.roundIndex);
-    this.requireBeforeDeadline(progress);
+
+    const assignment = getMatchRoundAssignment(room.matchSchedule!, progress.roundIndex);
+    const labels = assignment.artistIds.map((_, index) => `Drawing ${index + 1}`);
+    if (
+      typeof rawRatings !== "object" ||
+      rawRatings === null ||
+      Array.isArray(rawRatings)
+    ) {
+      throw new RoomServiceError("INVALID_INPUT", "Submit one rating for every drawing.");
+    }
+    const submittedRatings = rawRatings as Record<string, unknown>;
+    const keys = Object.keys(submittedRatings);
+    if (
+      keys.length !== labels.length ||
+      labels.some((label) => !Object.hasOwn(submittedRatings, label)) ||
+      keys.some((label) => !labels.includes(label))
+    ) {
+      throw new RoomServiceError("INVALID_INPUT", "Submit one rating for every drawing.");
+    }
+    for (const label of labels) {
+      const rating = submittedRatings[label];
+      if (typeof rating !== "number" || !Number.isInteger(rating) || rating < 0 || rating > 100) {
+        throw new RoomServiceError("INVALID_INPUT", "Ratings must be whole numbers from 0 to 100.");
+      }
+    }
+
+    const normalizedRatings = Object.fromEntries(
+      labels.map((label) => [label, submittedRatings[label] as number]),
+    );
+    if (
+      ["ROUND_RESULT", "FINAL_RESULT"].includes(progress.phase) &&
+      progress.judgeRatings !== null
+    ) {
+      if (labels.every((label) => progress.judgeRatings?.[label] === normalizedRatings[label])) {
+        return;
+      }
+      throw new RoomServiceError("WRONG_PHASE", "This round's ratings have already been submitted.");
+    }
+
+    this.requirePhase(progress, "JUDGING");
+    const now = this.requireBeforeDeadline(progress);
+    if (!Number.isFinite(now + MATCH_PHASE_DURATIONS_MS.ROUND_RESULT)) {
+      throw new RoomServiceError("REQUEST_FAILED", "The match deadline could not be set.");
+    }
+
+    if (progress.prompt === null) {
+      throw new RoomServiceError("WRONG_PHASE", "The round prompt is not available.");
+    }
+    const entries = assignment.artistIds.map((artistId, index) => {
+      const drawing = progress.canvases.get(artistId);
+      if (!drawing) {
+        throw new RoomServiceError("WRONG_PHASE", "A drawing is not available for rating.");
+      }
+      return {
+        label: labels[index]!,
+        artistId,
+        rating: normalizedRatings[labels[index]!]!,
+        canvas: cloneCanvas(drawing.canvas),
+      };
+    });
+    const scores = { ...progress.scores };
+    for (const entry of entries) {
+      scores[entry.artistId] = (scores[entry.artistId] ?? 0) + entry.rating;
+    }
+    const highestRating = Math.max(...entries.map(({ rating }) => rating));
+    const result = roundResultSchema.parse({
+      roundIndex: progress.roundIndex,
+      prompt: progress.prompt,
+      judgeId: player.id,
+      entries,
+      winners: entries
+        .filter(({ rating }) => rating === highestRating)
+        .map(({ artistId }) => artistId),
+    });
+
+    progress.scores = scores;
+    progress.judgeRatings = normalizedRatings;
+    progress.roundResult = result;
     this.transition(
       session.roomCode,
       progress,
       "ROUND_RESULT",
       MATCH_PHASE_DURATIONS_MS.ROUND_RESULT,
+      now,
     );
   }
 
@@ -285,7 +368,7 @@ export class MatchStateMachine {
           ? assignment.artistIds.map((playerId, index) => {
               const drawing = progress.canvases.get(playerId)!;
               return {
-                label: `Artist ${index + 1}`,
+                label: `Drawing ${index + 1}`,
                 sequence: drawing.sequence,
                 canvas: cloneCanvas(drawing.canvas),
                 locked:
@@ -294,6 +377,17 @@ export class MatchStateMachine {
                   (progress.deadline !== null && serverNow >= progress.deadline),
               };
             })
+            : null,
+      gallery:
+        role === "judge" && progress.phase === "JUDGING"
+            ? assignment.artistIds.map((playerId, index) => ({
+                label: `Drawing ${index + 1}`,
+                canvas: cloneCanvas(progress.canvases.get(playerId)!.canvas),
+              }))
+            : null,
+      roundResult:
+        ["ROUND_RESULT", "FINAL_RESULT"].includes(progress.phase)
+          ? progress.roundResult
           : null,
       match: {
         roundIndex: progress.roundIndex,
@@ -303,7 +397,10 @@ export class MatchStateMachine {
         artistIds: assignment.artistIds.map(publicPlayerId),
         order: room.matchSchedule.order.map(publicPlayerId),
         scores: Object.fromEntries(
-          room.matchSchedule.order.map((playerId) => [publicPlayerId(playerId), 0]),
+          room.matchSchedule.order.map((playerId) => [
+            publicPlayerId(playerId),
+            progress.scores[playerId] ?? 0,
+          ]),
         ),
       },
     });
@@ -378,10 +475,12 @@ export class MatchStateMachine {
     return { player, progress };
   }
 
-  private requireBeforeDeadline(progress: MatchProgress): void {
-    if (progress.deadline !== null && this.readClock() >= progress.deadline) {
+  private requireBeforeDeadline(progress: MatchProgress): number {
+    const now = this.readClock();
+    if (progress.deadline !== null && now >= progress.deadline) {
       throw new RoomServiceError("DEADLINE_PASSED", "The phase deadline has passed.");
     }
+    return now;
   }
 
   private processDeadline(roomCode: string, generation: number, now: number): void {
@@ -446,6 +545,8 @@ export class MatchStateMachine {
           this.transition(roomCode, progress, "FINAL_RESULT", null, progress.deadline);
         } else {
           progress.roundIndex = nextRound;
+          progress.judgeRatings = null;
+          progress.roundResult = null;
           this.transition(
             roomCode,
             progress,

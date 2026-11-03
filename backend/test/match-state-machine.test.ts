@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Phase, Session } from "@drawoff/contracts";
+import type { Phase, PlayerView, Session } from "@drawoff/contracts";
 import {
   MATCH_PHASE_DURATIONS_MS,
   MatchStateMachine,
@@ -110,6 +110,23 @@ function advanceToJudging(fixture: ReturnType<typeof createFixture>): void {
   assert.equal(fixture.view().phase, "JUDGING");
 }
 
+function validRatings(fixture: ReturnType<typeof createFixture>, rating = 50) {
+  return Object.fromEntries(
+    Array.from({ length: fixture.sessions.length - 1 }, (_, index) => [
+      `Drawing ${index + 1}`,
+      rating,
+    ]),
+  );
+}
+
+function submitRatings(
+  fixture: ReturnType<typeof createFixture>,
+  session = fixture.host,
+  rating = 50,
+): void {
+  fixture.machine.submitRatings(session, validRatings(fixture, rating));
+}
+
 function transitionFromRoundResult(
   fixture: ReturnType<typeof createFixture>,
 ): Phase {
@@ -146,7 +163,7 @@ test("server clock drives the normal phase sequence through the final result", (
   assert.equal(view.phase, "JUDGING");
   assert.equal(view.deadline, 110_000);
 
-  fixture.machine.finishJudging(fixture.host);
+  submitRatings(fixture);
   view = fixture.view();
   assert.equal(view.phase, "ROUND_RESULT");
   assert.equal(view.deadline, 77_000);
@@ -154,6 +171,7 @@ test("server clock drives the normal phase sequence through the final result", (
   assert.equal(fixture.view().match?.roundIndex, 1);
   assert.equal(fixture.view(fixture.sessions[1]!).role, "judge");
 
+  let finalRoundResult: PlayerView["roundResult"] = null;
   for (const expectedNext of ["ROLE_REVEAL", "FINAL_RESULT"] as const) {
     const roleRevealDeadline = fixture.view().deadline;
     assert.ok(roleRevealDeadline !== null);
@@ -166,8 +184,16 @@ test("server clock drives the normal phase sequence through the final result", (
     assert.ok(drawingDeadline !== null);
     fixture.setTime(drawingDeadline);
     fixture.machine.tick();
-    fixture.machine.finishJudging(currentJudge);
+    submitRatings(fixture, currentJudge);
+    if (expectedNext === "FINAL_RESULT") {
+      finalRoundResult = fixture.view().roundResult;
+    }
     assert.equal(transitionFromRoundResult(fixture), expectedNext);
+    if (expectedNext === "FINAL_RESULT") {
+      const finalView = fixture.view();
+      submitRatings(fixture, currentJudge);
+      assert.deepEqual(fixture.view(), finalView);
+    }
     if (expectedNext === "ROLE_REVEAL") {
       assert.equal(fixture.view().match?.roundIndex, 2);
       assert.equal(fixture.view(fixture.sessions[2]!).role, "judge");
@@ -178,6 +204,7 @@ test("server clock drives the normal phase sequence through the final result", (
   assert.equal(view.phase, "FINAL_RESULT");
   assert.equal(view.deadline, null);
   assert.equal(view.role, null);
+  assert.deepEqual(view.roundResult, finalRoundResult);
 });
 
 test("only the current Judge can cross word-selection and judging boundaries", () => {
@@ -201,14 +228,19 @@ test("only the current Judge can cross word-selection and judging boundaries", (
   fixture.machine.tick();
   const judging = fixture.view();
   expectRoomError(
-    () => fixture.machine.finishJudging(fixture.sessions[1]!),
+    () => fixture.machine.submitRatings(fixture.sessions[1]!, validRatings(fixture)),
     "FORBIDDEN",
   );
   assert.deepEqual(fixture.view(), judging);
 
-  fixture.machine.finishJudging(fixture.host);
+  submitRatings(fixture);
   const result = fixture.view();
-  expectRoomError(() => fixture.machine.finishJudging(fixture.host), "WRONG_PHASE");
+  fixture.machine.submitRatings(fixture.host, validRatings(fixture));
+  assert.deepEqual(fixture.view(), result);
+  expectRoomError(
+    () => fixture.machine.submitRatings(fixture.host, validRatings(fixture, 49)),
+    "WRONG_PHASE",
+  );
   assert.deepEqual(fixture.view(), result);
 });
 
@@ -239,7 +271,7 @@ test("judging mutations succeed immediately before but fail at and after deadlin
   advanceToJudging(before);
   const judgingDeadline = before.view().deadline!;
   before.setTime(judgingDeadline - 1);
-  before.machine.finishJudging(before.host);
+  submitRatings(before);
   assert.equal(before.view().phase, "ROUND_RESULT");
   assert.equal(
     before.view().deadline,
@@ -251,7 +283,10 @@ test("judging mutations succeed immediately before but fail at and after deadlin
     advanceToJudging(fixture);
     fixture.setTime(fixture.view().deadline! + offset);
     const unchanged = fixture.view();
-    expectRoomError(() => fixture.machine.finishJudging(fixture.host), "DEADLINE_PASSED");
+    expectRoomError(
+      () => fixture.machine.submitRatings(fixture.host, validRatings(fixture)),
+      "DEADLINE_PASSED",
+    );
     assert.deepEqual(fixture.view(), unchanged);
   }
 });
@@ -341,7 +376,7 @@ test("drawing locks each canvas at its server deadline and preserves frozen anon
   const judgeDuringDrawing = fixture.view();
   assert.deepEqual(
     judgeDuringDrawing.liveCanvases?.map(({ label }) => label),
-    ["Artist 1", "Artist 2", "Artist 3"],
+    ["Drawing 1", "Drawing 2", "Drawing 3"],
   );
 
   fixture.setTime(drawingDeadline);

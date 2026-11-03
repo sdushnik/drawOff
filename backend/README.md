@@ -99,9 +99,9 @@ current phase and server deadline in each personalized view. Match start enters
 the match to drawing. A single server timer starts with that phase and
 establishes its 60-second deadline; the server enters `JUDGING` at that
 boundary. The Judge's deadline is `max(45 seconds, 15 seconds × Artist count)`. Rating
-handling calls `finishJudging` after accepting the Judge's submission, which
-enters `ROUND_RESULT` for 12 seconds. The server timer then advances to the
-next `ROLE_REVEAL`, or to `FINAL_RESULT` after the last scheduled round.
+submissions are validated and scored by the state machine; a complete valid
+submission enters `ROUND_RESULT` for 12 seconds. The server timer then advances
+to the next `ROLE_REVEAL`, or to `FINAL_RESULT` after the last scheduled round.
 
 Boundary methods authenticate the saved room session, frozen roster
 membership, current Judge role, phase, and server-clock deadline before
@@ -111,9 +111,8 @@ callbacks preserve the scheduled boundary rather than extending a phase. The
 clock and timer functions are injectable for deterministic tests.
 
 Prompt selection and its timeout fallback are owned by #11; canvas freeze and
-early submission are implemented by #16. Scoring, judging timeout behavior,
-and result data remain in #18. This state machine exposes only their transition
-boundaries. It does not implement disconnect pause or interruption behavior:
+early submission are implemented by #16. The state machine does not implement
+judging timeout behavior. It also does not implement disconnect pause or interruption behavior:
 those must be added via the dedicated policies in #20/#21 and cannot bypass
 ordinary authorization, phase, or deadline checks.
 
@@ -142,7 +141,7 @@ There are no per-pixel events.
 
 Only the submitting Artist and current Judge receive drawing-related
 `state:update` events. Artist views contain only that Artist's `myCanvas`;
-Judge views contain `liveCanvases` in stable `Artist 1`, `Artist 2`, … order,
+Judge views contain `liveCanvases` in stable `Drawing 1`, `Drawing 2`, … order,
 without artist names or IDs. Each live canvas includes a sequence counter, its
 canvas revision (`canvas.rev`), lock state, and a complete snapshot. The
 sequence advances for each accepted canvas mutation and lock; duplicate or
@@ -158,3 +157,23 @@ submissions at or after the deadline, even if a scheduled timer callback is
 delayed. During judging, the Judge continues to receive every immutable canvas
 under its original anonymous label, while Artists receive only their own
 locked snapshot and cannot modify or resubmit it.
+
+## Ratings and round results
+
+The Judge submits `ratings:submit` with the attached Judge session and a
+ratings record keyed by the exact anonymous labels shown in `gallery` (for
+example, `Drawing 1`). The server accepts exactly one integer rating from 0
+through 100, inclusive, for every frozen drawing and rejects missing or extra
+labels. It never accepts client-supplied Artist identities or point awards.
+Invalid requests leave the phase, scores, and personalized views unchanged.
+
+On the first valid submission, the server resolves each label to its Artist
+using the frozen server-side drawing order, copies each frozen canvas into the
+result, adds the rating to that Artist's cumulative score, and selects every
+Artist tied for the highest rating in stable drawing order. The Judge earns no
+points for the round. The complete result and updated totals are published
+together to every match player in `ROUND_RESULT`; before that transition the
+Judge's gallery remains anonymous and all views have no round result.
+Repeating the exact submission during the result phase succeeds without
+applying points or publishing a second result; a changed retry is rejected.
+Round results do not calculate final match standings or rematch behavior.

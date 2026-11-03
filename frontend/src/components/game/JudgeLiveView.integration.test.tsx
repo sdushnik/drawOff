@@ -90,32 +90,32 @@ describe("JudgeLiveView Socket.IO integration", () => {
         </ServiceProvider>,
       );
 
-      expect(await screen.findByRole("img", { name: "Artist 1, live" })).toBeInTheDocument();
-      expect(screen.getByRole("img", { name: "Artist 2, live" })).toBeInTheDocument();
+      expect(await screen.findByRole("img", { name: "Drawing 1, live" })).toBeInTheDocument();
+      expect(screen.getByRole("img", { name: "Drawing 2, live" })).toBeInTheDocument();
       expect(
         screen.queryByText(/Judge Name|Artist One Name|Artist Two Name/i),
       ).not.toBeInTheDocument();
 
-      fireEvent.click(screen.getByRole("button", { name: /Artist 2/ }));
-      const selectedArtistTwo = screen.getByRole("button", { name: "Artist 2" });
+      fireEvent.click(screen.getByRole("button", { name: /Drawing 2/ }));
+      const selectedArtistTwo = screen.getByRole("button", { name: "Drawing 2" });
       expect(selectedArtistTwo).toHaveAttribute("aria-current", "true");
 
       await act(async () => {
         await artistTwoService.sendDrawOps(artistTwo, [{ type: "clear", id: "artist-two-clear" }]);
       });
       await waitFor(() =>
-        expect(screen.getByRole("img", { name: "Artist 2, live" })).toHaveAttribute(
+        expect(screen.getByRole("img", { name: "Drawing 2, live" })).toHaveAttribute(
           "data-revision",
           "1",
         ),
       );
-      expect(screen.getByRole("button", { name: "Artist 2" })).toHaveAttribute(
+      expect(screen.getByRole("button", { name: "Drawing 2" })).toHaveAttribute(
         "aria-current",
         "true",
       );
 
-      fireEvent.click(screen.getByRole("button", { name: "Artist 1" }));
-      expect(screen.getByRole("img", { name: "Artist 1, live" })).toHaveAttribute(
+      fireEvent.click(screen.getByRole("button", { name: "Drawing 1" }));
+      expect(screen.getByRole("img", { name: "Drawing 1, live" })).toHaveAttribute(
         "data-revision",
         "0",
       );
@@ -123,7 +123,7 @@ describe("JudgeLiveView Socket.IO integration", () => {
         await artistOneService.sendDrawOps(artistOne, [{ type: "clear", id: "artist-one-clear" }]);
       });
       await waitFor(() =>
-        expect(screen.getByRole("img", { name: "Artist 1, live" })).toHaveAttribute(
+        expect(screen.getByRole("img", { name: "Drawing 1, live" })).toHaveAttribute(
           "data-revision",
           "1",
         ),
@@ -133,17 +133,17 @@ describe("JudgeLiveView Socket.IO integration", () => {
         await artistOneService.submitCanvas(artistOne);
       });
       await waitFor(() => expect(screen.getByText("Done")).toBeInTheDocument());
-      expect(screen.getByRole("button", { name: "Artist 1" })).toHaveAttribute(
+      expect(screen.getByRole("button", { name: "Drawing 1" })).toHaveAttribute(
         "aria-current",
         "true",
       );
 
       fireEvent.click(screen.getByRole("button", { name: /Grid view/ }));
-      expect(screen.getByRole("img", { name: "Artist 1, live" })).toHaveAttribute(
+      expect(screen.getByRole("img", { name: "Drawing 1, live" })).toHaveAttribute(
         "data-revision",
         "1",
       );
-      expect(screen.getByRole("img", { name: "Artist 2, live" })).toHaveAttribute(
+      expect(screen.getByRole("img", { name: "Drawing 2, live" })).toHaveAttribute(
         "data-revision",
         "1",
       );

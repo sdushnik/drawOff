@@ -466,12 +466,10 @@ function registerRoomHandlers(
         clientToServerPayloadSchemas["ratings:submit"],
         clientToServerResponseSchemas["ratings:submit"],
         acknowledge,
-        ({ session }) => {
+        ({ session, ratings }) => {
           assertAttached(socket, session);
-          throw new RoomServiceError(
-            "SERVICE_UNAVAILABLE",
-            "Rating submissions are not available yet.",
-          );
+          matchStateMachine.submitRatings(attachedSessions.get(socket.id)!, ratings);
+          return {};
         },
       );
     });

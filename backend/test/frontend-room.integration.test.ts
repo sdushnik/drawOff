@@ -66,7 +66,7 @@ test("two frontend Socket.IO clients create and join the same live room", async 
   }
 });
 
-test("live Socket.IO rating submissions reach the server and receive its stable service error", async () => {
+test("live Socket.IO rating submissions reject players outside an active match", async () => {
   const { app, io } = createServer({ logger: false });
   const address = await app.listen({ host: "127.0.0.1", port: 0 });
   const client = createSocketGameService(address);
@@ -79,8 +79,8 @@ test("live Socket.IO rating submissions reach the server and receive its stable 
       client.submitRatings(judge, { "Drawing 1": 0, "Drawing 2": 100 }),
       (error: unknown) => {
         assert.ok(error instanceof Error);
-        assert.equal("code" in error ? error.code : undefined, "SERVICE_UNAVAILABLE");
-        assert.equal(error.message, "Rating submissions are not available yet.");
+        assert.equal("code" in error ? error.code : undefined, "FORBIDDEN");
+        assert.equal(error.message, "Only players in the active match can act.");
         return true;
       },
     );

@@ -238,7 +238,7 @@ test("live drawing ops are private, ordered, idempotent, and recover from a miss
 
     const [judgeView, artistView] = await Promise.all([judgeSnapshot, artistSnapshot]);
     const liveCanvas = judgeView.liveCanvases?.find((canvas) => canvas.sequence === 4)!;
-    assert.equal(liveCanvas.label, "Artist 1");
+    assert.equal(liveCanvas.label, "Drawing 1");
     assert.deepEqual(liveCanvas.canvas.actions.map(({ type }) => type), ["stroke", "fill"]);
     assert.equal(liveCanvas.canvas.rev, 4);
     assert.equal(liveCanvas.canvas.resets, 1);
@@ -290,7 +290,7 @@ test("live drawing ops are private, ordered, idempotent, and recover from a miss
 
     const lockedView = waitForView(
       judgeSocket,
-      (view) => view.liveCanvases?.find(({ label }) => label === "Artist 1")?.locked === true,
+      (view) => view.liveCanvases?.find(({ label }) => label === "Drawing 1")?.locked === true,
     );
     assert.equal((await request(artistSocket, "drawing:submit", { session: artist })).ok, true);
     assert.equal((await lockedView).liveCanvases?.[0]?.sequence, 5);
