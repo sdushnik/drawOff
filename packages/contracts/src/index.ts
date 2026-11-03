@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export { PROMPTS, pickSuggestions } from "./prompts.js";
+
 export const phaseSchema = z.enum([
   "LOBBY",
   "ROLE_REVEAL",

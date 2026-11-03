@@ -85,8 +85,8 @@ membership or any roster update changes.
 `MatchStateMachine` owns normal gameplay phase transitions and publishes the
 current phase and server deadline in each personalized view. Match start enters
 `ROLE_REVEAL` for 4 seconds; its server timer advances to `WORD_SELECTION` for
-30 seconds. Prompt-selection handling calls `startDrawing` after its own
-validation. Drawing lasts 60 seconds before the server enters `JUDGING`; the
+30 seconds. A valid `prompt:select` request or the selection timeout advances
+the match to drawing. Drawing lasts 60 seconds before the server enters `JUDGING`; the
 Judge's deadline is `max(45 seconds, 15 seconds × Artist count)`. Rating
 handling calls `finishJudging` after accepting the Judge's submission, which
 enters `ROUND_RESULT` for 12 seconds. The server timer then advances to the
@@ -105,3 +105,13 @@ early submission by #16; scoring, judging timeout behavior, and result data by
 implement disconnect pause or interruption behavior: those must be added via
 the dedicated policies in #20/#21 and cannot bypass ordinary authorization,
 phase, or deadline checks.
+
+The Judge receives three distinct, curated prompt suggestions when
+`WORD_SELECTION` begins. Artists receive neither the suggestions nor a prompt
+until selection is finalized. Send `prompt:select` with the Judge's session and
+either one displayed suggestion or custom text. The server trims and collapses
+whitespace, accepts only 1–40 normalized characters, and rejects markup. The
+30-second selection timer chooses one of the same three suggestions if the
+Judge does not submit in time. The finalized prompt is included in every
+Artist's and the Judge's personalized drawing, judging, and result views,
+including views sent when a session reconnects.

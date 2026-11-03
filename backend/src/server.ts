@@ -22,7 +22,10 @@ import {
   RoomService,
   RoomServiceError,
 } from "./room-service.js";
-import { MatchStateMachine } from "./match-state-machine.js";
+import {
+  MatchStateMachine,
+  type MatchStateMachineOptions,
+} from "./match-state-machine.js";
 
 type ClientSocketEvents = {
   [Event in keyof ClientToServerPayloads]: (
@@ -88,7 +91,11 @@ function handleSocketRequest<TPayload, TResponse>(
   }
 }
 
-function registerRoomHandlers(io: SocketIOServer, roomService: RoomService): void {
+function registerRoomHandlers(
+  io: SocketIOServer,
+  roomService: RoomService,
+  machineOptions: Omit<MatchStateMachineOptions, "onTransition"> = {},
+): void {
   const attachedSessions = new Map<string, Session>();
   const playerSockets = new Map<string, Set<string>>();
   let matchStateMachine: MatchStateMachine;
@@ -118,6 +125,7 @@ function registerRoomHandlers(io: SocketIOServer, roomService: RoomService): voi
   };
 
   matchStateMachine = new MatchStateMachine(roomService, {
+    ...machineOptions,
     onTransition: publishRoom,
   });
   io.engine.on("close", () => matchStateMachine.dispose());
@@ -327,6 +335,21 @@ function registerRoomHandlers(io: SocketIOServer, roomService: RoomService): voi
         },
       );
     });
+
+    socket.on("prompt:select", (payload, acknowledge) => {
+      handleSocketRequest(
+        socket,
+        payload,
+        clientToServerPayloadSchemas["prompt:select"],
+        clientToServerResponseSchemas["prompt:select"],
+        acknowledge,
+        ({ session, prompt }) => {
+          assertAttached(socket, session);
+          matchStateMachine.selectPrompt(session, prompt);
+          return {};
+        },
+      );
+    });
   });
 }
 
@@ -355,11 +378,16 @@ export function createServer(
   options: {
     logger?: FastifyServerOptions["logger"];
     roomService?: RoomService;
+    matchStateMachineOptions?: Omit<MatchStateMachineOptions, "onTransition">;
   } = {},
 ) {
   const app = Fastify({ logger: options.logger ?? true });
   const io = new SocketIOServer<ClientSocketEvents, ServerSocketEvents>(app.server);
-  registerRoomHandlers(io, options.roomService ?? createRoomService());
+  registerRoomHandlers(
+    io,
+    options.roomService ?? createRoomService(),
+    options.matchStateMachineOptions,
+  );
   let fastifyReady = false;
 
   app.addHook("onReady", async () => {

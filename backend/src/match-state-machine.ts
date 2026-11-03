@@ -1,4 +1,4 @@
-import type { PlayerView, Session } from "@drawoff/contracts";
+import { pickSuggestions, type PlayerView, type Session } from "@drawoff/contracts";
 import { playerViewSchema } from "@drawoff/contracts";
 import {
   getMatchRoundAssignment,
@@ -30,12 +30,16 @@ interface MatchProgress {
   phaseStartedAt: number;
   deadline: number | null;
   roundIndex: number;
+  suggestions: string[];
+  prompt: string | null;
+  usedPrompts: string[];
   generation: number;
   timer: TimerHandle | null;
 }
 
 export interface MatchStateMachineOptions {
   now?: () => number;
+  random?: () => number;
   setTimer?: (callback: () => void, delayMs: number) => TimerHandle;
   clearTimer?: (timer: TimerHandle) => void;
   onTransition?: (roomCode: string) => void;
@@ -44,6 +48,7 @@ export interface MatchStateMachineOptions {
 export class MatchStateMachine {
   private readonly progress = new Map<string, MatchProgress>();
   private readonly now: () => number;
+  private readonly random: () => number;
   private readonly setTimer: (callback: () => void, delayMs: number) => TimerHandle;
   private readonly clearTimer: (timer: TimerHandle) => void;
   private readonly onTransition: (roomCode: string) => void;
@@ -53,6 +58,7 @@ export class MatchStateMachine {
     options: MatchStateMachineOptions = {},
   ) {
     this.now = options.now ?? Date.now;
+    this.random = options.random ?? Math.random;
     this.setTimer = options.setTimer ?? setTimeout;
     this.clearTimer = options.clearTimer ?? clearTimeout;
     this.onTransition = options.onTransition ?? (() => undefined);
@@ -76,6 +82,9 @@ export class MatchStateMachine {
       phaseStartedAt: now,
       deadline,
       roundIndex: 0,
+      suggestions: [],
+      prompt: null,
+      usedPrompts: [],
       generation: 0,
       timer: null,
     };
@@ -84,13 +93,13 @@ export class MatchStateMachine {
     this.onTransition(session.roomCode);
   }
 
-  /** Called by prompt-selection handling after its own validation succeeds. */
-  startDrawing(session: Session): void {
+  selectPrompt(session: Session, rawPrompt: unknown): void {
     const { room, player, progress } = this.requireMatchMember(session);
     this.requirePhase(progress, "WORD_SELECTION");
     this.requireJudge(room, player.id, progress.roundIndex);
     this.requireBeforeDeadline(progress);
-    this.transition(session.roomCode, progress, "DRAWING", MATCH_PHASE_DURATIONS_MS.DRAWING);
+    const prompt = normalizePrompt(rawPrompt);
+    this.finalizePrompt(session.roomCode, progress, prompt);
   }
 
   /** Called by rating handling after ratings have been accepted and recorded. */
@@ -131,6 +140,15 @@ export class MatchStateMachine {
       deadline: progress.deadline,
       matchStarted: true,
       role,
+      prompt:
+        progress.prompt !== null &&
+        ["DRAWING", "JUDGING", "ROUND_RESULT", "FINAL_RESULT"].includes(progress.phase)
+          ? progress.prompt
+          : null,
+      suggestions:
+        progress.phase === "WORD_SELECTION" && role === "judge"
+          ? [...progress.suggestions]
+          : null,
       match: {
         roundIndex: progress.roundIndex,
         totalRounds: room.matchSchedule.totalRounds,
@@ -212,6 +230,12 @@ export class MatchStateMachine {
 
     switch (progress.phase) {
       case "ROLE_REVEAL":
+        progress.suggestions = pickSuggestions(
+          this.random,
+          3,
+          new Set(progress.usedPrompts),
+        );
+        progress.prompt = null;
         this.transition(
           roomCode,
           progress,
@@ -220,6 +244,11 @@ export class MatchStateMachine {
           progress.deadline,
         );
         break;
+      case "WORD_SELECTION": {
+        const prompt = progress.suggestions[this.randomIndex(progress.suggestions.length)]!;
+        this.finalizePrompt(roomCode, progress, prompt, progress.deadline);
+        break;
+      }
       case "DRAWING": {
         const room = this.rooms.getRoom(roomCode);
         const artistCount = room.matchSchedule?.order.length
@@ -255,7 +284,6 @@ export class MatchStateMachine {
         }
         break;
       }
-      case "WORD_SELECTION":
       case "JUDGING":
       case "FINAL_RESULT":
         break;
@@ -279,7 +307,12 @@ export class MatchStateMachine {
     progress.phaseStartedAt = startedAt;
     progress.deadline = deadline;
     progress.generation += 1;
-    if (phase === "ROLE_REVEAL" || phase === "DRAWING" || phase === "ROUND_RESULT") {
+    if (
+      phase === "ROLE_REVEAL" ||
+      phase === "WORD_SELECTION" ||
+      phase === "DRAWING" ||
+      phase === "ROUND_RESULT"
+    ) {
       this.scheduleTimer(roomCode, progress);
     }
     this.onTransition(roomCode);
@@ -312,6 +345,33 @@ export class MatchStateMachine {
     this.progress.delete(roomCode);
   }
 
+  private finalizePrompt(
+    roomCode: string,
+    progress: MatchProgress,
+    prompt: string,
+    startedAt?: number,
+  ): void {
+    progress.prompt = prompt;
+    progress.usedPrompts.push(prompt);
+    this.transition(
+      roomCode,
+      progress,
+      "DRAWING",
+      MATCH_PHASE_DURATIONS_MS.DRAWING,
+      startedAt,
+    );
+  }
+
+  private randomIndex(length: number): number {
+    const sample = this.random();
+    if (length <= 0) {
+      throw new RoomServiceError("REQUEST_FAILED", "No prompt suggestions are available.");
+    }
+    return Number.isFinite(sample)
+      ? Math.min(length - 1, Math.max(0, Math.floor(sample * length)))
+      : 0;
+  }
+
   private readClock(): number {
     const now = this.now();
     if (!Number.isFinite(now)) {
@@ -319,4 +379,18 @@ export class MatchStateMachine {
     }
     return now;
   }
+}
+
+function normalizePrompt(raw: unknown): string {
+  if (typeof raw !== "string") {
+    throw new RoomServiceError("INVALID_INPUT", "Enter a valid prompt.");
+  }
+  const prompt = raw.trim().replace(/\s+/g, " ");
+  if (prompt.length < 1 || prompt.length > 40 || /[<>{}]/.test(prompt)) {
+    throw new RoomServiceError(
+      "INVALID_INPUT",
+      "Prompts must be 1–40 characters and cannot contain markup.",
+    );
+  }
+  return prompt;
 }

@@ -102,7 +102,7 @@ function advanceToWordSelection(fixture: ReturnType<typeof createFixture>): void
 
 function advanceToJudging(fixture: ReturnType<typeof createFixture>): void {
   advanceToWordSelection(fixture);
-  fixture.machine.startDrawing(fixture.host);
+  fixture.machine.selectPrompt(fixture.host, "lighthouse");
   const drawingDeadline = fixture.view().deadline;
   assert.ok(drawingDeadline !== null);
   fixture.setTime(drawingDeadline);
@@ -135,7 +135,7 @@ test("server clock drives the normal phase sequence through the final result", (
   assert.equal(view.phase, "WORD_SELECTION");
   assert.equal(view.deadline, 35_000);
 
-  fixture.machine.startDrawing(fixture.host);
+  fixture.machine.selectPrompt(fixture.host, "lighthouse");
   view = fixture.view();
   assert.equal(view.phase, "DRAWING");
   assert.equal(view.deadline, 65_000);
@@ -161,7 +161,7 @@ test("server clock drives the normal phase sequence through the final result", (
     fixture.machine.tick();
     assert.equal(fixture.view().phase, "WORD_SELECTION");
     const currentJudge = fixture.sessions[fixture.view().match!.roundIndex]!;
-    fixture.machine.startDrawing(currentJudge);
+    fixture.machine.selectPrompt(currentJudge, "lighthouse");
     const drawingDeadline = fixture.view().deadline;
     assert.ok(drawingDeadline !== null);
     fixture.setTime(drawingDeadline);
@@ -186,14 +186,14 @@ test("only the current Judge can cross word-selection and judging boundaries", (
 
   const before = fixture.view();
   expectRoomError(
-    () => fixture.machine.startDrawing(fixture.sessions[1]!),
+    () => fixture.machine.selectPrompt(fixture.sessions[1]!, "lighthouse"),
     "FORBIDDEN",
   );
   assert.deepEqual(fixture.view(), before);
 
-  fixture.machine.startDrawing(fixture.host);
+  fixture.machine.selectPrompt(fixture.host, "lighthouse");
   const drawing = fixture.view();
-  expectRoomError(() => fixture.machine.startDrawing(fixture.host), "WRONG_PHASE");
+  expectRoomError(() => fixture.machine.selectPrompt(fixture.host, "lighthouse"), "WRONG_PHASE");
   assert.deepEqual(fixture.view(), drawing);
 
   const drawingDeadline = drawing.deadline!;
@@ -217,7 +217,7 @@ test("word-selection mutations succeed immediately before but fail at and after 
   advanceToWordSelection(before);
   const wordDeadline = before.view().deadline!;
   before.setTime(wordDeadline - 1);
-  before.machine.startDrawing(before.host);
+  before.machine.selectPrompt(before.host, "lighthouse");
   assert.equal(before.view().phase, "DRAWING");
   assert.equal(before.view().deadline, wordDeadline - 1 + MATCH_PHASE_DURATIONS_MS.DRAWING);
 
@@ -226,7 +226,10 @@ test("word-selection mutations succeed immediately before but fail at and after 
     advanceToWordSelection(fixture);
     fixture.setTime(fixture.view().deadline! + offset);
     const unchanged = fixture.view();
-    expectRoomError(() => fixture.machine.startDrawing(fixture.host), "DEADLINE_PASSED");
+    expectRoomError(
+      () => fixture.machine.selectPrompt(fixture.host, "lighthouse"),
+      "DEADLINE_PASSED",
+    );
     assert.deepEqual(fixture.view(), unchanged);
   }
 });
@@ -259,17 +262,17 @@ test("invalid identity and nonmember mutations leave the match unchanged", () =>
   const unchanged = fixture.view();
   expectRoomError(
     () =>
-      fixture.machine.startDrawing({
+      fixture.machine.selectPrompt({
         ...fixture.host,
         token: "not-the-session-token",
-      }),
+      }, "lighthouse"),
     "UNAUTHORIZED",
   );
   assert.deepEqual(fixture.view(), unchanged);
 
   const anotherRoom = fixture.rooms.createRoom("Other host");
   expectRoomError(
-    () => fixture.machine.startDrawing(anotherRoom),
+    () => fixture.machine.selectPrompt(anotherRoom, "lighthouse"),
     "FORBIDDEN",
   );
   assert.deepEqual(fixture.view(), unchanged);
@@ -290,7 +293,7 @@ test("stale timer callbacks and repeated deadline delivery apply each transition
   assert.equal(fixture.view().phase, "WORD_SELECTION");
   assert.equal(fixture.transitions.length, updateCount);
 
-  fixture.machine.startDrawing(fixture.host);
+  fixture.machine.selectPrompt(fixture.host, "lighthouse");
   const drawingTimerId = [...fixture.activeTimers.keys()][0]!;
   const drawingDeadline = fixture.view().deadline!;
   fixture.setTime(drawingDeadline);
@@ -336,6 +339,69 @@ test("the server clock rejects late actions without accepting client timestamps"
   advanceToWordSelection(fixture);
   fixture.setTime(fixture.view().deadline!);
   const before = fixture.view();
-  expectRoomError(() => fixture.machine.startDrawing(fixture.host), "DEADLINE_PASSED");
+  expectRoomError(
+    () => fixture.machine.selectPrompt(fixture.host, "lighthouse"),
+    "DEADLINE_PASSED",
+  );
   assert.deepEqual(fixture.view(), before);
+});
+
+test("word-selection suggestions are distinct and private until the Judge finalizes a prompt", () => {
+  const fixture = createFixture();
+  advanceToWordSelection(fixture);
+
+  const judgeView = fixture.view(fixture.host);
+  const artistView = fixture.view(fixture.sessions[1]!);
+  assert.equal(judgeView.suggestions?.length, 3);
+  assert.equal(new Set(judgeView.suggestions).size, 3);
+  assert.equal(judgeView.prompt, null);
+  assert.equal(artistView.suggestions, null);
+  assert.equal(artistView.prompt, null);
+
+  fixture.machine.selectPrompt(fixture.host, "  a \n  bright   kite  ");
+  assert.equal(fixture.view(fixture.host).prompt, "a bright kite");
+  assert.equal(fixture.view(fixture.sessions[1]!).prompt, "a bright kite");
+  assert.equal(fixture.view(fixture.sessions[1]!).suggestions, null);
+});
+
+test("custom prompts accept normalized lengths 1 and 40 and reject invalid text without mutation", () => {
+  for (const prompt of [" x ", ` ${"x".repeat(40)} `]) {
+    const fixture = createFixture();
+    advanceToWordSelection(fixture);
+    fixture.machine.selectPrompt(fixture.host, prompt);
+    assert.equal(fixture.view().phase, "DRAWING");
+    assert.equal(fixture.view().prompt, prompt.trim().replace(/\s+/g, " "));
+  }
+
+  for (const prompt of ["", " \n ", "x".repeat(41), "<bold>", "a{b}", null]) {
+    const fixture = createFixture();
+    advanceToWordSelection(fixture);
+    const before = fixture.view();
+    expectRoomError(
+      () => fixture.machine.selectPrompt(fixture.host, prompt),
+      "INVALID_INPUT",
+    );
+    assert.deepEqual(fixture.view(), before);
+  }
+});
+
+test("word-selection timeout chooses a displayed suggestion and advances exactly once", () => {
+  const fixture = createFixture();
+  advanceToWordSelection(fixture);
+  const suggestions = fixture.view().suggestions;
+  assert.equal(suggestions?.length, 3);
+  const wordSelectionTimer = [...fixture.activeTimers.keys()][0]!;
+  const updateCount = fixture.transitions.length;
+
+  fixture.setTime(fixture.view().deadline!);
+  fixture.runTimer(wordSelectionTimer);
+
+  const drawing = fixture.view();
+  assert.equal(drawing.phase, "DRAWING");
+  assert.ok(suggestions?.includes(drawing.prompt!));
+  assert.equal(fixture.transitions.length, updateCount + 1);
+  fixture.runHistoricalTimer(wordSelectionTimer);
+  fixture.machine.tick();
+  assert.equal(fixture.view().phase, "DRAWING");
+  assert.equal(fixture.transitions.length, updateCount + 1);
 });

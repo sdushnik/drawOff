@@ -116,7 +116,9 @@ export function createSocketGameService(serverUrl: string): GameService {
     startMatch: async (session) => {
       await request("match:start", { session });
     },
-    selectPrompt: unsupported,
+    selectPrompt: async (session, prompt) => {
+      await request("prompt:select", { session, prompt });
+    },
     sendDrawOps: async (_session: Session, _ops: DrawOp[]) => unsupported(),
     submitCanvas: unsupported,
     submitRatings: unsupported,
