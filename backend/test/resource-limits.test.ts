@@ -96,20 +96,22 @@ test("resource defaults are configurable, positive, and do not define a player c
   );
 });
 
-test("fixed-window rate limits accept the exact boundary, reject explicitly, and recover", () => {
+test("fixed-window rate limits reject sustained pressure across repeated windows and recover", () => {
   let now = 1_000;
   const limiter = new FixedWindowRateLimiter(() => now);
   const rule = { max: 2, windowMs: 100 };
-  limiter.consume("drawing:p1", rule, "drawing events");
-  limiter.consume("drawing:p1", rule, "drawing events");
-  assert.throws(
-    () => limiter.consume("drawing:p1", rule, "drawing events"),
-    (error: unknown) =>
-      error instanceof RoomServiceError &&
-      error.code === "REQUEST_FAILED" &&
-      /retry in 100 ms/.test(error.message),
-  );
-  now = 1_100;
+  for (let window = 0; window < 3; window += 1) {
+    limiter.consume("drawing:p1", rule, "drawing events");
+    limiter.consume("drawing:p1", rule, "drawing events");
+    assert.throws(
+      () => limiter.consume("drawing:p1", rule, "drawing events"),
+      (error: unknown) =>
+        error instanceof RoomServiceError &&
+        error.code === "REQUEST_FAILED" &&
+        /retry in 100 ms/.test(error.message),
+    );
+    now += 100;
+  }
   limiter.consume("drawing:p1", rule, "drawing events");
 });
 
@@ -147,6 +149,9 @@ test("Socket.IO applies the byte ceiling and room abuse limits before mutation",
   const address = await app.listen({ host: "127.0.0.1", port: 0 });
   const creator = await connect(address);
   const guesser = await connect(address);
+  const secondGuesser = await connect(address);
+  const thirdGuesser = await connect(address);
+  const burstGuesser = await connect(address);
   const oversized = await connect(address);
   try {
     const disconnected = new Promise<void>((resolve, reject) => {
@@ -167,17 +172,34 @@ test("Socket.IO applies the byte ceiling and room abuse limits before mutation",
       message: "Rate limit exceeded for room creation; retry in 100 ms.",
     });
 
-    for (const code of ["ZZZZZ1", "ZZZZZ2"]) {
-      const result = await request(guesser, "room:join", { code, name: "Guess Player" });
+    for (const socket of [guesser, secondGuesser]) {
+      const result = await request(socket, "room:join", {
+        code: "SHARED",
+        name: "Guess Player",
+      });
       assert.equal("code" in result && result.code, "ROOM_NOT_FOUND");
     }
-    const rejectedGuess = await request(guesser, "room:join", {
+    const sharedCodeRejected = await request(thirdGuesser, "room:join", {
+      code: "SHARED",
+      name: "Guess Player",
+    });
+    assert.equal("code" in sharedCodeRejected && sharedCodeRejected.code, "REQUEST_FAILED");
+    assert.equal(
+      "message" in sharedCodeRejected && /attempts for this room code/.test(sharedCodeRejected.message),
+      true,
+    );
+
+    for (const code of ["ZZZZZ1", "ZZZZZ2"]) {
+      const result = await request(burstGuesser, "room:join", { code, name: "Guess Player" });
+      assert.equal("code" in result && result.code, "ROOM_NOT_FOUND");
+    }
+    const rejectedGuess = await request(burstGuesser, "room:join", {
       code: "ZZZZZ3",
       name: "Guess Player",
     });
     assert.equal("message" in rejectedGuess && /Rate limit exceeded/.test(rejectedGuess.message), true);
     now = 1_100;
-    const afterWindow = await request(guesser, "room:join", {
+    const afterWindow = await request(burstGuesser, "room:join", {
       code: "ZZZZZ3",
       name: "Guess Player",
     });
@@ -185,6 +207,9 @@ test("Socket.IO applies the byte ceiling and room abuse limits before mutation",
   } finally {
     creator.disconnect();
     guesser.disconnect();
+    secondGuesser.disconnect();
+    thirdGuesser.disconnect();
+    burstGuesser.disconnect();
     oversized.disconnect();
     await new Promise<void>((resolve) => io.close(() => resolve()));
   }
@@ -253,6 +278,20 @@ test("drawing and submission rates reject atomically per session and room, then 
     assert.deepEqual(
       await request(judgeSocket, "prompt:select", { session: judge, prompt: "lighthouse" }),
       {},
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const updatesBeforeUnauthorized = judgeUpdates;
+    const unauthorized = await request(firstArtistSocket, "drawing:ops", {
+      session: secondArtist,
+      ops: [{ type: "clear", id: "spoofed-session" }],
+    });
+    assert.equal("code" in unauthorized && unauthorized.code, "UNAUTHORIZED");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(
+      judgeUpdates,
+      updatesBeforeUnauthorized,
+      "unauthorized drawing request was not broadcast",
     );
 
     const oversizedBatch = await request(firstArtistSocket, "drawing:ops", {
