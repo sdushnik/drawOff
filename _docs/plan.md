@@ -131,12 +131,13 @@ Over one cycle each player is Judge **once** and Artist **N − 1 times**. Over 
 
 ### 4.5 Canvas and drawing
 
-**Tools:** Pen, compact color palette, brush sizes, eraser, undo, and clear.
+**Tools:** Pen, compact color palette, brush sizes, eraser, **Bucket Fill (flood fill)**, undo, and clear.
 
 - A **server-authoritative 60-second timer** controls when drawing starts and ends.
 - Each Artist draws locally on a separate canvas.
 - Artists can see and interact only with their own canvas; other Artists' drawings are never sent to them.
 - Stream validated drawing events from each Artist to the server and then to the Judge in real time. Do not send live drawing events to other Artists.
+- Synchronize Bucket Fill as an atomic Socket.IO drawing action containing the canvas-relative seed position, selected fill color, and ordering/version information. Apply the same bounded flood-fill operation to the Artist's and Judge's canvas state; do not emit one network event per pixel.
 - Give each live drawing a stable anonymous label for the round; do not expose its Artist identity to the Judge.
 - The Judge can watch all live canvases in Grid View or select one for Focus View. Both views stay synchronized with the same server-held canvas state.
 - The Judge is a read-only viewer and cannot draw, edit a canvas, or use Artist drawing tools.
@@ -259,6 +260,7 @@ Allow additional `PAUSED_FOR_RECONNECT` and `MATCH_INTERRUPTED` states, with exp
 - Only the Judge can select the prompt and submit ratings.
 - Only the corresponding Artist can send drawing updates or submit/lock their own canvas.
 - The server relays drawing updates only to the Judge and maintains the current canvas state for authorized resynchronization.
+- Bucket Fill actions are validated and synchronized as ordered canvas operations, so the Judge's live canvas and reconnect state include the fill without exposing it to other Artists.
 - The Judge receives anonymous drawing identifiers and cannot edit canvases; other Artists never receive one another's drawing data.
 - Grid and Focus views render the same synchronized state; changing views does not change server state or interrupt updates.
 - The server, not the browser, calculates the scoreboard.
@@ -345,7 +347,7 @@ Keep the artist-to-anonymous-card mapping private on the server until ratings ar
 - Judge chooses three suggested prompts or custom word
 - 60-second synchronized canvases with private Artist views and live Judge spectating
 - Judge Grid View and selectable Focus View, both kept live and anonymous
-- Essential drawing tools, early canvas locking, deadline freeze, and reconnect resynchronization
+- Pen, palette, brush sizes, eraser, Bucket Fill (flood fill), undo, and clear, with early canvas locking, deadline freeze, and reconnect resynchronization
 - Anonymous **multi-drawing gallery** with 0–100 scores
 - Prompt visible to Judge during scoring
 - Direct points, round reveals, leaderboard, final results
@@ -376,23 +378,24 @@ Keep the artist-to-anonymous-card mapping private on the server until ratings ar
 5. For each cycle, every player Judges once and draws in all remaining `N − 1` rounds.
 6. Judge picks a suggested or custom word; all Artists receive the same word.
 7. Artists can draw concurrently for 60 seconds without viewing other Artists' work; the Judge receives their drawing updates live through the server.
-8. The Judge can see all live anonymous canvases in Grid View, focus any one canvas, and switch views without losing synchronization; the Judge cannot draw or edit.
-9. At 60 seconds, all canvases freeze; an Artist who submitted early remains locked while the rest of the phase continues.
-10. Reconnecting authorized clients recover already synchronized canvas progress and the current phase.
-11. The Judge sees all completed drawings anonymously with the original prompt in a scalable gallery.
-12. Every drawing receives a validated whole-number score from 0 to 100.
-13. Artist names reveal only after all scores are submitted and locked.
-14. Each Artist receives points equal to their rating; Judge earns none that round.
-15. Round top ratings and match high total are announced correctly, including ties.
-16. Disconnections and repeated submits cannot corrupt scores or the role schedule.
-17. Mobile and desktop browser experiences remain usable.
-18. The application is tested with several different room sizes, and any capacity-based protection is documented.
+8. Artists can use Bucket Fill (flood fill) with the selected palette color; the fill operation synchronizes as a bounded, ordered Socket.IO action and appears consistently on the Judge's live canvas.
+9. The Judge can see all live anonymous canvases in Grid View, focus any one canvas, and switch views without losing synchronization; the Judge cannot draw or edit.
+10. At 60 seconds, all canvases freeze; an Artist who submitted early remains locked while the rest of the phase continues.
+11. Reconnecting authorized clients recover already synchronized canvas progress and the current phase.
+12. The Judge sees all completed drawings anonymously with the original prompt in a scalable gallery.
+13. Every drawing receives a validated whole-number score from 0 to 100.
+14. Artist names reveal only after all scores are submitted and locked.
+15. Each Artist receives points equal to their rating; Judge earns none that round.
+16. Round top ratings and match high total are announced correctly, including ties.
+17. Disconnections and repeated submits cannot corrupt scores or the role schedule.
+18. Mobile and desktop browser experiences remain usable.
+19. The application is tested with several different room sizes, and any capacity-based protection is documented.
 
 ## 11. Suggested build sequence
 
 1. **Guest rooms and lobby:** Create/join by code, real-time roster, host controls, cycle selector.
 2. **Round orchestration:** Locked roster, Judge rotation, prompts, synchronized server timers.
-3. **Drawing and live spectating:** Mouse/touch canvas, basic tools, private Artist canvases, Socket.IO event relay to the Judge, anonymous Grid/Focus views, deadline freeze, and state resynchronization.
+3. **Drawing and live spectating:** Mouse/touch canvas, pen, palette, brush sizes, eraser, Bucket Fill (flood fill), undo, clear, private Artist canvases, Socket.IO event relay to the Judge, anonymous Grid/Focus views, deadline freeze, and state resynchronization.
 4. **Judging and scores:** Anonymous gallery for `N − 1` drawings, integer ratings, reveal, leaderboard.
 5. **Reliability and polish:** Reconnect state, timeout/interruption handling, mobile layout, load tests.
 6. **Playtesting:** Try 3, 5, 8 and larger groups; measure judging speed, total match length, and backend resource use.

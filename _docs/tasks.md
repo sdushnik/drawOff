@@ -99,3 +99,7 @@ Description: Add automated integration coverage for room creation and joining, m
 ## 25. Measuring room capacity and deployment behavior
 Goal: Validate practical capacity and document how to run the MVP in production-like hosting.
 Description: Load-test progressively larger rooms, including 3, 5, 8, and larger player groups, while measuring event bandwidth, latency, memory, and Judge grid responsiveness. Document measured operational safety limits, environment configuration, and deployment of the static frontend and persistent Socket.IO-capable backend without turning a measured limit into a fixed six-player gameplay rule.
+
+## 26. Implementing synchronized Bucket Fill
+Goal: Add a Bucket Fill tool that Artists can use on their canvas and the Judge can watch update live.
+Description: Add a Bucket Fill option to the Artist canvas toolbar and implement a bounded flood-fill algorithm that fills a contiguous region from the selected seed point with the selected palette color. Synchronize each fill as an ordered Socket.IO canvas action through the server to the Judge, and test that the Artist and Judge canvases stay consistent without exposing drawing data to other Artists.
