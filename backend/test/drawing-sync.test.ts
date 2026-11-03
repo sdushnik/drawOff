@@ -244,8 +244,23 @@ test("live drawing ops are private, ordered, idempotent, and recover from a miss
     assert.equal(liveCanvas.canvas.resets, 1);
     assert.equal(artistView.liveCanvases, null);
     assert.equal(artistView.myCanvas?.canvas.actions.length, 2);
-    assert.equal(JSON.stringify(judgeView.liveCanvases).includes(artist.playerId), false);
-    assert.equal(JSON.stringify(judgeView.liveCanvases).includes("Artist One"), false);
+    const completeJudgePayload = JSON.stringify(judgeView);
+    assert.equal(completeJudgePayload.includes(artist.playerId), false);
+    assert.equal(completeJudgePayload.includes(otherArtist.playerId), false);
+    assert.equal(completeJudgePayload.includes("Artist One"), false);
+    assert.equal(completeJudgePayload.includes("Artist Two"), false);
+    assert.equal(judgeView.match?.judgeId, judge.playerId);
+    assert.equal(judgeView.match?.artistIds.length, 2);
+    assert.equal(judgeView.match?.order.length, 3);
+    assert.equal(judgeView.match?.totalRounds, 3);
+    assert.equal(judgeView.match?.roundIndex, 0);
+    assert.equal(judgeView.match?.cycle, 1);
+    assert.deepEqual(
+      judgeView.players.filter(({ id }) => id !== judge.playerId).map(({ name }) => name),
+      ["Anonymous player 1", "Anonymous player 2"],
+    );
+    assert.deepEqual(artistView.match?.artistIds, [artist.playerId, otherArtist.playerId]);
+    assert.equal(artistView.players.find(({ id }) => id === artist.playerId)?.name, "Artist One");
     await new Promise((resolve) => setTimeout(resolve, 30));
     assert.equal(received.get(otherArtistSocket), receivedBefore.get(otherArtistSocket));
     assert.equal(received.get(otherRoomSocket), receivedBefore.get(otherRoomSocket));

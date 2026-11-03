@@ -219,9 +219,35 @@ export class MatchStateMachine {
           : assignment.artistIds.includes(authenticated.playerId)
             ? "artist"
             : null;
+    const hideArtistIdentities = role === "judge" && progress.phase === "DRAWING";
+    // Keep roster and schedule slots usable without exposing real Artist identities beside canvases.
+    const anonymousArtistIds = new Map(
+      assignment.artistIds.map((playerId, index) => [
+        playerId,
+        {
+          id: `anonymous-player-${room.code}-${progress.roundIndex}-${index + 1}`,
+          name: `Anonymous player ${index + 1}`,
+        },
+      ]),
+    );
+    const publicPlayerId = (playerId: string) =>
+      hideArtistIdentities
+        ? anonymousArtistIds.get(playerId)?.id ?? playerId
+        : playerId;
 
     return playerViewSchema.parse({
       ...lobbyView,
+      players: hideArtistIdentities
+        ? lobbyView.players.map((player) => {
+            const anonymousPlayer = anonymousArtistIds.get(player.id);
+            if (!anonymousPlayer) return player;
+            return {
+              ...player,
+              ...anonymousPlayer,
+            };
+          })
+        : lobbyView.players,
+      hostId: publicPlayerId(lobbyView.hostId),
       serverNow: this.readClock(),
       phase: progress.phase,
       deadline: progress.deadline,
@@ -269,9 +295,11 @@ export class MatchStateMachine {
         totalRounds: room.matchSchedule.totalRounds,
         cycle: Math.floor(progress.roundIndex / room.matchSchedule.order.length) + 1,
         judgeId: assignment.judgeId,
-        artistIds: [...assignment.artistIds],
-        order: [...room.matchSchedule.order],
-        scores: Object.fromEntries(room.matchSchedule.order.map((playerId) => [playerId, 0])),
+        artistIds: assignment.artistIds.map(publicPlayerId),
+        order: room.matchSchedule.order.map(publicPlayerId),
+        scores: Object.fromEntries(
+          room.matchSchedule.order.map((playerId) => [publicPlayerId(playerId), 0]),
+        ),
       },
     });
   }
