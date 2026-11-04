@@ -36,4 +36,27 @@ describe("floodFill", () => {
     expect(floodFill(d, 4, 3, 1, 1, [0, 0, 255, 255])).toBe(0);
     expect(floodFill(d, 4, 3, 99, 1, [1, 2, 3, 255])).toBe(0);
   });
+
+  it("fills an open-edge region without crossing a differently colored boundary", () => {
+    const w = 6;
+    const h = 4;
+    const d = blank(w, h);
+    for (let y = 0; y < h; y += 1) setPx(d, w, 3, y, [0, 0, 0, 255]);
+
+    expect(floodFill(d, w, h, 0, 0, [0, 144, 255, 255])).toBe(12);
+    expect(px(d, w, 0, 3)).toEqual([0, 144, 255, 255]);
+    expect(px(d, w, 3, 2)).toEqual([0, 0, 0, 255]);
+    expect(px(d, w, 5, 3)).toEqual([255, 255, 255, 255]);
+  });
+
+  it("bounds worst-case work to the complete canvas raster", () => {
+    const w = 600;
+    const h = 450;
+    const d = blank(w, h);
+
+    expect(floodFill(d, w, h, 0, 0, [18, 165, 148, 255])).toBe(w * h);
+    expect(px(d, w, 0, 0)).toEqual([18, 165, 148, 255]);
+    expect(px(d, w, w - 1, h - 1)).toEqual([18, 165, 148, 255]);
+    expect(floodFill(d, w, h, w, h, [255, 0, 0, 255])).toBe(0);
+  });
 });

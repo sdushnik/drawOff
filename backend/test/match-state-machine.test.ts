@@ -764,20 +764,24 @@ test("aggregate room canvas history rejects atomically at its exact boundary and
 
   assert.equal(
     fixture.machine.sendDrawOps(firstArtist, [
-      { type: "clear", id: "one" },
-      { type: "clear", id: "two" },
+      { type: "fill", id: "one", x: 10, y: 10, color: "#0090ff" },
+      { type: "fill", id: "two", x: 20, y: 20, color: "#e5484d" },
     ]),
     true,
   );
   expectRoomError(
-    () => fixture.machine.sendDrawOps(secondArtist, [{ type: "clear", id: "over-limit" }]),
+    () => fixture.machine.sendDrawOps(secondArtist, [
+      { type: "fill", id: "over-limit", x: 30, y: 30, color: "#46a758" },
+    ]),
     "INVALID_INPUT",
   );
   assert.deepEqual(fixture.view(secondArtist).myCanvas?.canvas.actions, []);
 
   fixture.machine.sendDrawOps(firstArtist, [{ type: "undo", id: "free-space" }]);
   assert.equal(
-    fixture.machine.sendDrawOps(secondArtist, [{ type: "clear", id: "after-rejection" }]),
+    fixture.machine.sendDrawOps(secondArtist, [
+      { type: "fill", id: "after-rejection", x: 40, y: 40, color: "#6e56cf" },
+    ]),
     true,
   );
   assert.equal(fixture.view(secondArtist).myCanvas?.canvas.actions.length, 1);

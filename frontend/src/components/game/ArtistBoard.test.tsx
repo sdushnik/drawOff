@@ -173,6 +173,7 @@ describe("ArtistBoard", () => {
   ])("locks all editing controls after %s", (_label, locked, timeUp) => {
     renderBoard({ locked, timeUp });
     expect(screen.getByRole("button", { name: "Pen" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Bucket fill" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Color #e5484d" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Brush 8px" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();

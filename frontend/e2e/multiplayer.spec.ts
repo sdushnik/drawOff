@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
-import type { PlayerView } from "@drawoff/contracts";
+import type { CanvasSnapshot, PlayerView } from "@drawoff/contracts";
 
 type Player = { context: BrowserContext; page: Page; name: string };
 type NavigationOutcome = { kind: "success" } | { kind: "error"; message: string };
@@ -170,6 +170,22 @@ async function currentView(page: Page): Promise<PlayerView> {
   });
 }
 
+async function renderedSnapshotHash(page: Page, snapshot: CanvasSnapshot): Promise<string> {
+  return page.evaluate(async (canvasSnapshot) => {
+    const rendererModule = await (0, eval)('import("/src/game/render.ts")');
+    const canvas = document.createElement("canvas");
+    canvas.width = 600;
+    canvas.height = 450;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) throw new Error("The browser did not provide a 2D canvas context.");
+    const renderer = new rendererModule.CanvasRenderer(context);
+    renderer.render(canvasSnapshot);
+    const rgba = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    const digest = await crypto.subtle.digest("SHA-256", rgba);
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  }, snapshot);
+}
+
 async function drawStroke(page: Page): Promise<void> {
   const canvas = page.getByLabel("Your canvas");
   const box = await canvas.boundingBox();
@@ -257,6 +273,50 @@ test("three isolated browsers complete a private match and rematch through the r
           canvas.actions.filter(({ id }) => id === duplicateOp.id).length
         ) ?? [];
       }).toEqual([1, 0]);
+
+      let synchronizedFillHash: string | null = null;
+      if (round === 0) {
+        const fillId = "parity-fill";
+        const mixedHistory = [
+          {
+            type: "stroke",
+            id: "parity-boundary",
+            tool: "pen",
+            color: "#1f1b16",
+            size: 8,
+            points: [120, 120, 240, 120, 240, 240, 120, 240, 120, 120],
+          },
+          { type: "fill", id: fillId, x: 180, y: 180, color: "#0090ff" },
+          { type: "clear", id: "parity-clear" },
+          { type: "undo", id: "parity-undo" },
+        ];
+        expect(await frontendServiceCall(artists[0]!.page, "sendDrawOps", [mixedHistory])).toEqual({ ok: true });
+
+        await expect.poll(async () => {
+          const artistCanvas = (await currentView(artists[0]!.page)).myCanvas?.canvas;
+          const judgeCanvas = (await currentView(judge.page)).liveCanvases?.find(({ canvas }) =>
+            canvas.actions.some(({ id }) => id === fillId)
+          )?.canvas;
+          return artistCanvas && judgeCanvas
+            ? JSON.stringify(artistCanvas) === JSON.stringify(judgeCanvas)
+            : false;
+        }, { message: "Artist and Judge did not converge on the same ordered fill snapshot." }).toBe(true);
+        const artistSnapshot = (await currentView(artists[0]!.page)).myCanvas?.canvas;
+        const judgeSnapshot = (await currentView(judge.page)).liveCanvases?.find(({ canvas }) =>
+          canvas.actions.some(({ id }) => id === fillId)
+        )?.canvas;
+        if (!artistSnapshot || !judgeSnapshot) {
+          throw new Error("Artist and Judge did not receive the synchronized fill snapshot.");
+        }
+        expect(artistSnapshot.actions.map(({ type }) => type).slice(-2)).toEqual(["stroke", "fill"]);
+        expect(artistSnapshot.resets).toBeGreaterThan(0);
+        expect(judgeSnapshot).toEqual(artistSnapshot);
+        const artistHash = await renderedSnapshotHash(artists[0]!.page, artistSnapshot);
+        const judgeHash = await renderedSnapshotHash(judge.page, judgeSnapshot);
+        expect(judgeHash).toBe(artistHash);
+        synchronizedFillHash = artistHash;
+      }
+
       const privateArtistView = await currentView(artists[1]!.page);
       expect(privateArtistView.liveCanvases).toBeNull();
       expect(privateArtistView.gallery).toBeNull();
@@ -265,6 +325,7 @@ test("three isolated browsers complete a private match and rematch through the r
         const beforeReload = (await currentView(artists[0]!.page)).myCanvas?.canvas;
         expect(beforeReload?.rev).toBeGreaterThan(0);
         expect(beforeReload?.actions.filter(({ id }) => id === duplicateOp.id)).toHaveLength(1);
+        expect(beforeReload?.actions.filter(({ id }) => id === "parity-fill")).toHaveLength(1);
         await artists[0]!.page.reload();
         await expect(artists[0]!.page.getByLabel("Your canvas")).toBeVisible();
         await expect(judge.page.getByRole("alertdialog", { name: "Game paused" })).toHaveCount(0);
@@ -276,6 +337,11 @@ test("three isolated browsers complete a private match and rematch through the r
               restored?.actions.filter(({ id }) => id === duplicateOp.id).length ?? 0,
           };
         }).toEqual({ revisionPreserved: true, synchronizedActionCopies: 1 });
+        const restoredSnapshot = (await currentView(artists[0]!.page)).myCanvas?.canvas;
+        if (!restoredSnapshot || !synchronizedFillHash) {
+          throw new Error("The synchronized fill snapshot was not restored after reconnect.");
+        }
+        expect(await renderedSnapshotHash(artists[0]!.page, restoredSnapshot)).toBe(synchronizedFillHash);
       }
 
       await expect(judge.page.getByRole("spinbutton", { name: "Drawing 1 rating" })).toBeVisible();

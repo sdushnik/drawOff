@@ -171,7 +171,7 @@ test("live drawing ops are private, ordered, idempotent, and recover from a miss
     assert.equal(started.ok, true);
     const outOfPhase = await request(artistSocket, "drawing:ops", {
       session: artist,
-      ops: [{ type: "clear", id: "before-drawing" }],
+      ops: [{ type: "fill", id: "before-drawing", x: 10, y: 10, color: "#0090ff" }],
     });
     assert.equal(outOfPhase.ok, false);
     if (!outOfPhase.ok) assert.equal(outOfPhase.error.code, "WRONG_PHASE");
@@ -184,7 +184,7 @@ test("live drawing ops are private, ordered, idempotent, and recover from a miss
 
     const judgeAttempt = await request(judgeSocket, "drawing:ops", {
       session: judge,
-      ops: [{ type: "clear", id: "judge-clear" }],
+      ops: [{ type: "fill", id: "judge-fill", x: 10, y: 10, color: "#0090ff" }],
     });
     assert.equal(judgeAttempt.ok, false);
     if (!judgeAttempt.ok) assert.equal(judgeAttempt.error.code, "FORBIDDEN");
@@ -208,6 +208,22 @@ test("live drawing ops are private, ordered, idempotent, and recover from a miss
     } as unknown as ClientToServerPayloads["drawing:ops"]);
     assert.equal(malformed.ok, false);
     if (!malformed.ok) assert.equal(malformed.error.code, "INVALID_INPUT");
+
+    const beforeInvalidFill = new Map(received);
+    for (const fill of [
+      { type: "fill", id: "negative-fill", x: -1, y: 10, color: "#0090ff" },
+      { type: "fill", id: "wide-fill", x: 601, y: 10, color: "#0090ff" },
+      { type: "fill", id: "bad-color-fill", x: 10, y: 10, color: "blue" },
+    ]) {
+      const rejected = await request(artistSocket, "drawing:ops", {
+        session: artist,
+        ops: [fill],
+      } as unknown as ClientToServerPayloads["drawing:ops"]);
+      assert.equal(rejected.ok, false);
+      if (!rejected.ok) assert.equal(rejected.error.code, "INVALID_INPUT");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.deepEqual(received, beforeInvalidFill, "invalid fills did not publish a canvas update");
 
     const receivedBefore = new Map(received);
     const judgeSnapshot = waitForView(
@@ -245,8 +261,8 @@ test("live drawing ops are private, ordered, idempotent, and recover from a miss
     assert.equal(artistView.liveCanvases, null);
     assert.equal(artistView.myCanvas?.canvas.actions.length, 2);
     const completeJudgePayload = JSON.stringify(judgeView);
-    assert.equal(completeJudgePayload.includes(artist.playerId), false);
-    assert.equal(completeJudgePayload.includes(otherArtist.playerId), false);
+    assert.equal(completeJudgePayload.includes(artist.playerId), false, completeJudgePayload);
+    assert.equal(completeJudgePayload.includes(otherArtist.playerId), false, completeJudgePayload);
     assert.equal(completeJudgePayload.includes("Artist One"), false);
     assert.equal(completeJudgePayload.includes("Artist Two"), false);
     assert.equal(judgeView.match?.judgeId, judge.playerId);
@@ -296,7 +312,7 @@ test("live drawing ops are private, ordered, idempotent, and recover from a miss
     assert.equal((await lockedView).liveCanvases?.[0]?.sequence, 5);
     const afterLock = await request(artistSocket, "drawing:ops", {
       session: artist,
-      ops: [{ type: "clear", id: "after-lock" }],
+      ops: [{ type: "fill", id: "after-lock", x: 10, y: 10, color: "#0090ff" }],
     });
     assert.equal(afterLock.ok, false);
     if (!afterLock.ok) assert.equal(afterLock.error.code, "FORBIDDEN");
@@ -311,7 +327,7 @@ test("live drawing ops are private, ordered, idempotent, and recover from a miss
     assert.equal(pausedArtistView.pause?.playerName, "Judge Name");
     const rejectedWhilePaused = await request(otherArtistSocket, "drawing:ops", {
       session: otherArtist,
-      ops: [{ type: "clear", id: "second-artist-clear" }],
+      ops: [{ type: "fill", id: "paused-fill", x: 10, y: 10, color: "#0090ff" }],
     });
     assert.equal(rejectedWhilePaused.ok, false);
     if (!rejectedWhilePaused.ok) {
@@ -350,7 +366,7 @@ test("live drawing ops are private, ordered, idempotent, and recover from a miss
     clock.advanceTo(deadline);
     const atDeadline = await request(otherArtistSocket, "drawing:ops", {
       session: otherArtist,
-      ops: [{ type: "clear", id: "at-deadline" }],
+      ops: [{ type: "fill", id: "at-deadline", x: 10, y: 10, color: "#0090ff" }],
     });
     assert.equal(atDeadline.ok, false);
     if (!atDeadline.ok) assert.equal(atDeadline.error.code, "DEADLINE_PASSED");
@@ -364,7 +380,7 @@ test("live drawing ops are private, ordered, idempotent, and recover from a miss
     clock.advanceTo(deadline + 1);
     const afterDeadline = await request(otherArtistSocket, "drawing:ops", {
       session: otherArtist,
-      ops: [{ type: "clear", id: "after-deadline" }],
+      ops: [{ type: "fill", id: "after-deadline", x: 10, y: 10, color: "#0090ff" }],
     });
     assert.equal(afterDeadline.ok, false);
     if (!afterDeadline.ok) assert.equal(afterDeadline.error.code, "DEADLINE_PASSED");
@@ -400,7 +416,7 @@ test("live drawing ops are private, ordered, idempotent, and recover from a miss
 
     const afterTransition = await request(otherArtistSocket, "drawing:ops", {
       session: otherArtist,
-      ops: [{ type: "clear", id: "after-transition" }],
+      ops: [{ type: "fill", id: "after-transition", x: 10, y: 10, color: "#0090ff" }],
     });
     assert.equal(afterTransition.ok, false);
     if (!afterTransition.ok) assert.equal(afterTransition.error.code, "WRONG_PHASE");
