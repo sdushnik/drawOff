@@ -65,3 +65,6 @@ npm run build
 
 The backend build is emitted to `backend/dist`; start it with
 `npm run start --workspace=@drawoff/backend`.
+
+Production-like deployment, browser/Socket.IO smoke testing, and measured
+capacity workflows are documented in [`_docs/deployment.md`](_docs/deployment.md).

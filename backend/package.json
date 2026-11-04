@@ -3,11 +3,13 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "capacity": "node scripts/capacity-test.mjs",
     "dev": "tsx watch src/index.ts",
     "predev": "npm run build --workspace @drawoff/contracts",
     "build": "tsc -p tsconfig.json",
     "prebuild": "npm run build --workspace @drawoff/contracts",
     "start": "node dist/index.js",
+    "smoke:production": "node scripts/capacity-test.mjs --smoke",
     "test": "tsx --test test/*.test.ts",
     "pretest": "npm run build --workspace @drawoff/contracts"
   },
