@@ -14,7 +14,8 @@
     "dev": "node scripts/dev.mjs",
     "test": "npm run test --workspaces --if-present",
     "test:e2e": "npm run test:e2e --workspace frontend",
-    "build": "npm run build --workspaces --if-present"
+    "build": "npm run build --workspaces --if-present",
+    "db:migrate": "npm run db:migrate --workspace @drawoff/backend"
   },
   "dependencies": {
     "@openai/codex-sdk": "^0.166.0"

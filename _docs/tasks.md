@@ -103,3 +103,15 @@ Description: Load-test progressively larger rooms, including 3, 5, 8, and larger
 ## 26. Implementing synchronized Bucket Fill
 Goal: Add a Bucket Fill tool that Artists can use on their canvas and the Judge can watch update live.
 Description: Add a Bucket Fill option to the Artist canvas toolbar and implement a bounded flood-fill algorithm that fills a contiguous region from the selected seed point with the selected palette color. Synchronize each fill as an ordered Socket.IO canvas action through the server to the Judge, and test that the Artist and Judge canvases stay consistent without exposing drawing data to other Artists.
+
+## 27. Persisting rooms and matches in SQLite
+Goal: Replace process-only durability with transactional SQLite persistence while preserving the existing TypeScript architecture and realtime contracts.
+Description: Configure Kysely and SQLite through `DATABASE_URL`, store room, player, match, deadline, score, rating, and synchronized canvas state behind typed repository interfaces, restore active games and timers after restart, and keep sockets, active connections, timer handles, and rate counters transient.
+
+## 28. Adding and validating the PostgreSQL persistence adapter
+Goal: Run the same persistence contract against PostgreSQL without changing game-domain or transport code.
+Description: Add Kysely's PostgreSQL dialect and driver, PostgreSQL-compatible migrations and CI coverage, then validate repository, restart, privacy, idempotency, and concurrency behavior. This is not part of issue 27.
+
+## 29. Deploying durable persistence and coordinating multi-instance runtime state
+Goal: Provision, back up, monitor, and safely operate durable storage with more than one backend process.
+Description: Define production database provisioning, backup/restore, rollout, distributed timer ownership, locks, shared rate limiting, and Socket.IO horizontal coordination. This is not part of issue 27.

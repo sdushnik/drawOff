@@ -22,9 +22,50 @@ generic, user-safe message. Unexpected server errors return HTTP 500 with
 `INTERNAL_SERVER_ERROR`; the details are logged server-side and are never
 included in the response.
 
-## In-memory rooms
+## Database persistence
 
-`src/room-service.ts` provides the in-memory room domain service, independent
+`DATABASE_URL` is required by the runnable backend. For local development, use
+SQLite and run the versioned migrations before starting the server:
+
+```sh
+export DATABASE_URL=sqlite:./backend/data/drawoff.sqlite
+npm run db:migrate
+npm run dev --workspace @drawoff/backend
+```
+
+The root `npm run dev` command supplies that local SQLite URL when the variable
+is not already set. `backend/data/` is ignored by Git; keep the file on durable
+storage anywhere rooms must survive process restarts. The migration command is
+idempotent and creates the parent directory and empty database on a clean
+checkout. Tests use isolated temporary files or an explicit
+`sqlite::memory:` URL.
+
+Kysely is the typed, database-agnostic query layer. Driver setup is isolated in
+`src/database/`; room and match code only exposes durable typed snapshots to a
+repository interface. SQLite uses `better-sqlite3`, enables foreign keys, and
+commits each authoritative snapshot in one transaction. A startup migration or
+connection failure stops startup; there is no runtime fallback to memory.
+Client-facing failures are sanitized and never include the URL, SQL, or driver
+details.
+
+The database retains rooms and configuration, ordered players and host,
+SHA-256 session-token hashes, the frozen roster and Judge schedule, match and
+round phases, prompts, deadlines, scores, ratings/results, private anonymous
+drawing associations, canvas snapshots/actions/revisions/locks, and duplicate
+operation fingerprints. Raw session tokens are never written. Socket IDs,
+active connection flags, timer handles, rate-limit windows, and event listeners
+remain process-local. On restart all players begin disconnected; persisted
+future timers are recreated and overdue deadlines are applied with the normal
+state-machine rules before readiness.
+
+PostgreSQL is a follow-up, not implemented here. Switching requires adding
+Kysely's PostgreSQL dialect and the `pg` driver, accepting a `postgresql://`
+URL in the bootstrap adapter, supplying PostgreSQL-compatible versioned
+migrations, and running the same repository/restart/privacy contract tests.
+
+## Room domain behavior
+
+`src/room-service.ts` provides the authoritative room domain service, independent
 of HTTP routes and Socket.IO handlers. It creates private six-character
 alphanumeric codes, supports joining with a bare code or `/room/{code}` invite
 link, normalizes display names, and returns the shared typed session payload.

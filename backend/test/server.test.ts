@@ -22,6 +22,7 @@ test("backend starts with Fastify and Socket.IO", async () => {
   const { app, io, address } = await startServer({
     host: "127.0.0.1",
     port: 0,
+    databaseUrl: "sqlite::memory:",
   });
 
   try {

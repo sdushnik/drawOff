@@ -1,7 +1,7 @@
 # Production-like deployment
 
 DrawOff deploys as two artifacts: the built frontend and one persistent
-Node.js backend that owns the in-memory rooms and Socket.IO connections. The
+Node.js backend that owns database-backed rooms and Socket.IO connections. The
 backend must run on a host that supports long-lived WebSocket connections and
 sticky process lifetime. A request-per-invocation serverless function is not a
 compatible backend target.
@@ -32,6 +32,7 @@ NODE_ENV=production \
 HOST=0.0.0.0 \
 PORT=3000 \
 FRONTEND_ORIGINS=https://draw.example \
+DATABASE_URL=sqlite:/var/lib/drawoff/drawoff.sqlite \
 npm start --workspace @drawoff/backend
 ```
 
@@ -39,8 +40,7 @@ npm start --workspace @drawoff/backend
 Wildcards are rejected. Terminate TLS at the platform proxy or load balancer,
 forward WebSocket upgrade headers, and set its idle timeout above the longest
 game phase. Route all Socket.IO traffic for the MVP to the same backend
-process; horizontal coordination and durable room storage are not part of the
-current architecture.
+process; horizontal coordination is not part of the current architecture.
 
 The optional resource-limit environment variables are documented in
 [`backend/README.md`](../backend/README.md#realtime-resource-limits). They are
@@ -56,12 +56,11 @@ single-process rollout is:
 
 1. Build immutable artifacts with the intended public backend URL.
 2. Start the new backend revision and wait for `/health`.
-3. Switch new traffic to it during a maintenance window or after existing
-   in-memory rooms have drained; terminating the old process ends its rooms.
+3. Run the documented database migrations, then switch traffic to the backend
+   revision using the same durable database.
 4. Publish the matching static frontend revision.
 5. Run the production-like smoke command below against the built artifacts.
-6. Retain the previous artifacts for rollback. Rolling back the process cannot
-   restore rooms that existed only in the replaced process memory.
+6. Retain the previous artifacts and a compatible database backup for rollback.
 
 Do not place session tokens, credentials, or service secrets in `VITE_*`
 variables: frontend variables are public. Store platform credentials in the

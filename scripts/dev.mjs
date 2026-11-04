@@ -10,6 +10,9 @@ const children = workspaces.map((workspace) =>
       ...(workspace === "frontend" && process.env["VITE_GAME_SERVER_URL"] === undefined
         ? { VITE_GAME_SERVER_URL: `http://localhost:${process.env["PORT"] ?? "3000"}` }
         : {}),
+      ...(workspace === "backend" && process.env["DATABASE_URL"] === undefined
+        ? { DATABASE_URL: "sqlite:./backend/data/drawoff.sqlite" }
+        : {}),
     },
   }),
 );

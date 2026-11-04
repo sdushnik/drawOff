@@ -25,8 +25,15 @@ import {
 } from "./room-service.js";
 import {
   MatchStateMachine,
+  type DurableMatchProgress,
   type MatchStateMachineOptions,
 } from "./match-state-machine.js";
+import {
+  databaseUrlFromEnvironment,
+  KyselyGameStateRepository,
+  RoomPersistenceError,
+  type GameStateRepository,
+} from "./database/repository.js";
 import {
   FixedWindowRateLimiter,
   resourceLimitOptionsFromEnvironment,
@@ -127,7 +134,7 @@ function handleSocketRequest<TPayload, TResponse>(
   payloadSchema: RuntimeSchema<TPayload>,
   responseSchema: RuntimeSchema<TResponse>,
   acknowledge: ((response: TResponse) => void) | undefined,
-  operation: (payload: TPayload) => unknown,
+  operation: (payload: TPayload) => unknown | Promise<unknown>,
 ): void {
   if (typeof acknowledge !== "function") {
     emitSocketError(socket, "INVALID_INPUT", "A request acknowledgement is required.");
@@ -140,16 +147,24 @@ function handleSocketRequest<TPayload, TResponse>(
     return;
   }
 
-  try {
-    const response = responseSchema.parse(operation(parsed.data));
-    acknowledge(response);
-  } catch (error) {
+  const fail = (error: unknown) => {
     if (error instanceof RoomServiceError) {
       emitSocketError(socket, error.code, error.message);
       return;
     }
-
+    if (error instanceof RoomPersistenceError) {
+      emitSocketError(socket, "SERVICE_UNAVAILABLE", "The room state could not be saved. Try again.");
+      return;
+    }
     emitSocketError(socket, "REQUEST_FAILED", "The request could not be completed.");
+  };
+
+  try {
+    void Promise.resolve(operation(parsed.data))
+      .then((value) => acknowledge(responseSchema.parse(value)))
+      .catch(fail);
+  } catch (error) {
+    fail(error);
   }
 }
 
@@ -159,10 +174,40 @@ function registerRoomHandlers(
   resourceLimits: ResourceLimits,
   rateLimiter: FixedWindowRateLimiter,
   machineOptions: Omit<MatchStateMachineOptions, "onTransition"> = {},
-): void {
+  repository?: GameStateRepository,
+  initialMatches: readonly DurableMatchProgress[] = [],
+): MatchStateMachine {
   const attachedSessions = new Map<string, Session>();
   const playerSockets = new Map<string, Set<string>>();
+  let shuttingDown = false;
   let matchStateMachine: MatchStateMachine;
+  let persistenceQueue = Promise.resolve();
+  const persist = async () => {
+    if (!repository) return;
+    const snapshot = {
+      rooms: roomService.exportDurableState(),
+      matches: matchStateMachine.exportDurableState(),
+    };
+    const write = persistenceQueue.then(() => repository.replace(snapshot));
+    persistenceQueue = write.catch(() => undefined);
+    await write;
+  };
+
+  const persistMutation = async <T>(operation: () => T): Promise<T> => {
+    const roomsBefore = roomService.exportDurableState();
+    const matchesBefore = matchStateMachine.exportDurableState();
+    try {
+      const result = operation();
+      await persist();
+      return result;
+    } catch (error) {
+      if (error instanceof RoomPersistenceError) {
+        roomService.restoreDurableState(roomsBefore);
+        matchStateMachine.restoreDurableState(matchesBefore);
+      }
+      throw error;
+    }
+  };
 
   const playerKey = (session: Session) => `${session.roomCode}:${session.playerId}`;
 
@@ -208,16 +253,27 @@ function registerRoomHandlers(
   matchStateMachine = new MatchStateMachine(roomService, {
     ...machineOptions,
     maxCanvasActionsPerRoom: resourceLimits.maxCanvasActionsPerRoom,
-    onTransition: publishRoom,
+    onTransition: (roomCode) => {
+      if (!repository) {
+        publishRoom(roomCode);
+        return;
+      }
+      void persist().then(() => publishRoom(roomCode)).catch(() => undefined);
+    },
   });
+  if (initialMatches.length > 0) matchStateMachine.restoreDurableState(initialMatches);
   const cleanupTimer = setInterval(
-    () => roomService.purgeExpiredRooms(),
+    () => {
+      const removed = roomService.purgeExpiredRooms();
+      if (removed > 0) void persist().catch(() => undefined);
+    },
     resourceLimits.roomCleanupIntervalMs,
   );
   cleanupTimer.unref();
   io.engine.on("close", () => {
+    shuttingDown = true;
     clearInterval(cleanupTimer);
-    matchStateMachine.dispose();
+    matchStateMachine.dispose(false);
   });
 
   const enforceAttachedRateLimits = (
@@ -258,10 +314,11 @@ function registerRoomHandlers(
     sockets?.delete(socket.id);
     if (sockets?.size === 0) {
       playerSockets.delete(key);
-      if (markDisconnected) {
+      if (markDisconnected && !shuttingDown) {
         try {
           roomService.setConnected(session, false);
           matchStateMachine.playerDisconnected(session);
+          void persist().catch(() => undefined);
           publishRoom(session.roomCode);
         } catch {
           // The room or player may already have been removed.
@@ -325,14 +382,17 @@ function registerRoomHandlers(
         clientToServerPayloadSchemas["room:create"],
         clientToServerResponseSchemas["room:create"],
         acknowledge,
-        ({ name }) => {
+        async ({ name }) => {
           rateLimiter.consume(
             `create:connection:${socket.id}`,
             resourceLimits.roomCreatesPerConnection,
             "room creation",
           );
-          const session = roomService.createRoom(name);
-          attach(socket, session);
+          const session = await persistMutation(() => {
+            const created = roomService.createRoom(name);
+            attach(socket, created);
+            return created;
+          });
           publishRoom(session.roomCode);
           return { session };
         },
@@ -346,7 +406,7 @@ function registerRoomHandlers(
         clientToServerPayloadSchemas["room:join"],
         clientToServerResponseSchemas["room:join"],
         acknowledge,
-        ({ code, name }) => {
+        async ({ code, name }) => {
           rateLimiter.consume(
             `join:connection:${socket.id}`,
             resourceLimits.roomCodeGuessesPerConnection,
@@ -358,8 +418,11 @@ function registerRoomHandlers(
             resourceLimits.roomCodeGuessesPerCode,
             "attempts for this room code",
           );
-          const session = roomService.joinRoom(code, name);
-          attach(socket, session);
+          const session = await persistMutation(() => {
+            const joined = roomService.joinRoom(code, name);
+            attach(socket, joined);
+            return joined;
+          });
           publishRoom(session.roomCode);
           return { session };
         },
@@ -373,8 +436,8 @@ function registerRoomHandlers(
         clientToServerPayloadSchemas["session:resume"],
         clientToServerResponseSchemas["session:resume"],
         acknowledge,
-        ({ session }) => {
-          const resumed = attach(socket, session);
+        async ({ session }) => {
+          const resumed = await persistMutation(() => attach(socket, session));
           publishRoom(resumed.roomCode);
           return { session: resumed };
         },
@@ -388,8 +451,8 @@ function registerRoomHandlers(
         clientToServerPayloadSchemas["state:subscribe"],
         clientToServerResponseSchemas["state:subscribe"],
         acknowledge,
-        ({ session }) => {
-          const attached = attach(socket, session);
+        async ({ session }) => {
+          const attached = await persistMutation(() => attach(socket, session));
           publishRoom(attached.roomCode);
           return {};
         },
@@ -403,10 +466,12 @@ function registerRoomHandlers(
         clientToServerPayloadSchemas["room:leave"],
         clientToServerResponseSchemas["room:leave"],
         acknowledge,
-        ({ session }) => {
+        async ({ session }) => {
           assertAttached(socket, session);
-          matchStateMachine.playerLeft(session);
-          detach(socket, false);
+          await persistMutation(() => {
+            matchStateMachine.playerLeft(session);
+            detach(socket, false);
+          });
           publishRoom(session.roomCode);
           return {};
         },
@@ -420,18 +485,20 @@ function registerRoomHandlers(
         clientToServerPayloadSchemas["player:kick"],
         clientToServerResponseSchemas["player:kick"],
         acknowledge,
-        ({ session, playerId }) => {
+        async ({ session, playerId }) => {
           assertAttached(socket, session);
-          roomService.kickPlayer(session, playerId);
-          for (const [socketId, attached] of attachedSessions) {
-            if (
-              attached.roomCode === session.roomCode &&
-              attached.playerId === playerId
-            ) {
-              const target = io.sockets.sockets.get(socketId);
-              if (target) detach(target, false);
+          await persistMutation(() => {
+            roomService.kickPlayer(session, playerId);
+            for (const [socketId, attached] of attachedSessions) {
+              if (
+                attached.roomCode === session.roomCode &&
+                attached.playerId === playerId
+              ) {
+                const target = io.sockets.sockets.get(socketId);
+                if (target) detach(target, false);
+              }
             }
-          }
+          });
           publishRoom(session.roomCode);
           return {};
         },
@@ -445,9 +512,9 @@ function registerRoomHandlers(
         clientToServerPayloadSchemas["match:set-cycles"],
         clientToServerResponseSchemas["match:set-cycles"],
         acknowledge,
-        ({ session, cycles }) => {
+        async ({ session, cycles }) => {
           assertAttached(socket, session);
-          roomService.setCycles(session, cycles);
+          await persistMutation(() => roomService.setCycles(session, cycles));
           publishRoom(session.roomCode);
           return {};
         },
@@ -461,9 +528,9 @@ function registerRoomHandlers(
         clientToServerPayloadSchemas["match:start"],
         clientToServerResponseSchemas["match:start"],
         acknowledge,
-        ({ session }) => {
+        async ({ session }) => {
           assertAttached(socket, session);
-          matchStateMachine.startMatch(session);
+          await persistMutation(() => matchStateMachine.startMatch(session));
           publishRoom(session.roomCode);
           return {};
         },
@@ -477,9 +544,10 @@ function registerRoomHandlers(
         clientToServerPayloadSchemas["match:rematch"],
         clientToServerResponseSchemas["match:rematch"],
         acknowledge,
-        ({ session }) => {
+        async ({ session }) => {
           assertAttached(socket, session);
-          matchStateMachine.rematch(attachedSessions.get(socket.id)!);
+          await persistMutation(() =>
+            matchStateMachine.rematch(attachedSessions.get(socket.id)!));
           return {};
         },
       );
@@ -492,9 +560,9 @@ function registerRoomHandlers(
         clientToServerPayloadSchemas["prompt:select"],
         clientToServerResponseSchemas["prompt:select"],
         acknowledge,
-        ({ session, prompt }) => {
+        async ({ session, prompt }) => {
           assertAttached(socket, session);
-          matchStateMachine.selectPrompt(session, prompt);
+          await persistMutation(() => matchStateMachine.selectPrompt(session, prompt));
           return {};
         },
       );
@@ -507,11 +575,12 @@ function registerRoomHandlers(
         clientToServerPayloadSchemas["drawing:ops"],
         clientToServerResponseSchemas["drawing:ops"],
         acknowledge,
-        ({ session, ops }) => {
+        async ({ session, ops }) => {
           assertAttached(socket, session);
           enforceAttachedRateLimits(socket, "drawing");
           const authenticated = attachedSessions.get(socket.id)!;
-          const changed = matchStateMachine.sendDrawOps(authenticated, ops);
+          const changed = await persistMutation(() =>
+            matchStateMachine.sendDrawOps(authenticated, ops));
           if (changed) {
             publishDrawingViews(authenticated.roomCode, authenticated.playerId);
           }
@@ -527,11 +596,11 @@ function registerRoomHandlers(
         clientToServerPayloadSchemas["drawing:submit"],
         clientToServerResponseSchemas["drawing:submit"],
         acknowledge,
-        ({ session }) => {
+        async ({ session }) => {
           assertAttached(socket, session);
           enforceAttachedRateLimits(socket, "submissions");
           const authenticated = attachedSessions.get(socket.id)!;
-          matchStateMachine.submitCanvas(authenticated);
+          await persistMutation(() => matchStateMachine.submitCanvas(authenticated));
           publishDrawingViews(authenticated.roomCode, authenticated.playerId);
           return {};
         },
@@ -545,15 +614,17 @@ function registerRoomHandlers(
         clientToServerPayloadSchemas["ratings:submit"],
         clientToServerResponseSchemas["ratings:submit"],
         acknowledge,
-        ({ session, ratings }) => {
+        async ({ session, ratings }) => {
           assertAttached(socket, session);
           enforceAttachedRateLimits(socket, "submissions");
-          matchStateMachine.submitRatings(attachedSessions.get(socket.id)!, ratings);
+          await persistMutation(() =>
+            matchStateMachine.submitRatings(attachedSessions.get(socket.id)!, ratings));
           return {};
         },
       );
     });
   });
+  return matchStateMachine;
 }
 
 function sendHttpError(
@@ -584,10 +655,13 @@ export function createServer(
     roomService?: RoomService;
     matchStateMachineOptions?: Omit<MatchStateMachineOptions, "onTransition">;
     resourceLimits?: ResourceLimitOptions;
+    repository?: GameStateRepository;
+    initialMatches?: readonly DurableMatchProgress[];
   } = {},
 ) {
   const corsOrigins = validateCorsOrigins(options.corsOrigins ?? resolveCorsOrigins());
   const resourceLimits = resolveResourceLimits(options.resourceLimits);
+  const roomService = options.roomService ?? createRoomService();
   const app = Fastify({ logger: options.logger ?? true });
   void app.register(cors, {
     origin: corsOrigins,
@@ -600,12 +674,14 @@ export function createServer(
       credentials: true,
     },
   });
-  registerRoomHandlers(
+  const matchStateMachine = registerRoomHandlers(
     io,
-    options.roomService ?? createRoomService(),
+    roomService,
     resourceLimits,
     new FixedWindowRateLimiter(options.resourceLimits?.now),
     options.matchStateMachineOptions,
+    options.repository,
+    options.initialMatches,
   );
   let fastifyReady = false;
 
@@ -657,7 +733,45 @@ export function createServer(
     );
   });
 
-  return { app, io };
+  return { app, io, roomService, matchStateMachine };
+}
+
+export async function createPersistentServer(
+  options: {
+    logger?: FastifyServerOptions["logger"];
+    corsOrigins?: readonly string[];
+    resourceLimits?: ResourceLimitOptions;
+    matchStateMachineOptions?: Omit<MatchStateMachineOptions, "onTransition">;
+    databaseUrl?: string;
+  } = {},
+) {
+  const repository = KyselyGameStateRepository.open(
+    options.databaseUrl ?? databaseUrlFromEnvironment(),
+  );
+  try {
+    await repository.migrate();
+    const state = await repository.load();
+    const roomService = createRoomService({ now: options.matchStateMachineOptions?.now });
+    roomService.restoreDurableState(state.rooms);
+    const server = createServer({
+      logger: options.logger,
+      corsOrigins: options.corsOrigins,
+      resourceLimits: options.resourceLimits,
+      matchStateMachineOptions: options.matchStateMachineOptions,
+      roomService,
+      repository,
+      initialMatches: state.matches,
+    });
+    await repository.replace({
+      rooms: roomService.exportDurableState(),
+      matches: server.matchStateMachine.exportDurableState(),
+    });
+    server.app.addHook("onClose", async () => repository.close());
+    return server;
+  } catch (error) {
+    await repository.close();
+    throw error;
+  }
 }
 
 export async function startServer(
@@ -666,11 +780,13 @@ export async function startServer(
     port?: number;
     corsOrigins?: readonly string[];
     resourceLimits?: ResourceLimitOptions;
+    databaseUrl?: string;
   } = {},
 ): Promise<RunningServer> {
-  const { app, io } = createServer({
+  const { app, io } = await createPersistentServer({
     corsOrigins: options.corsOrigins,
     resourceLimits: options.resourceLimits ?? resourceLimitOptionsFromEnvironment(),
+    databaseUrl: options.databaseUrl,
   });
   const address = await app.listen({
     host: options.host ?? "0.0.0.0",

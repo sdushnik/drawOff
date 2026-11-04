@@ -280,7 +280,7 @@ This is a recommendation, not a product requirement.
 - **Backend:** Node.js + TypeScript
 - **Real-time protocol:** Socket.IO
 - **Drawing:** HTML Canvas API with Socket.IO drawing-event synchronization (Artist → server → Judge); server-held canvas state supports Grid/Focus views and reconnect resynchronization
-- **Initial persistence:** In-memory game state on **one backend process** for a portfolio prototype
+- **Initial persistence:** SQLite-backed durable room and match state behind typed repositories; one backend process owns transient Socket.IO coordination
 - **Deployment:** Frontend static host and a persistent backend host with WebSocket support
 
 **Why:** The main learning challenge is real-time coordination, including privacy-preserving live drawing delivery and authoritative phase control. A single authoritative server is simpler than a distributed architecture or database-backed game framework.
@@ -332,7 +332,7 @@ Keep the artist-to-anonymous-card mapping private on the server until ratings ar
 | Artist disconnects before submission | Pause up to 30 seconds; resume or interrupt match |
 | Host leaves | Reassign host |
 | Browser refresh/reconnect | Recover temporary identity/current phase and resynchronize already synchronized canvas progress from server-held state; unsynchronized local strokes are best-effort |
-| Server restart | Active rooms may be lost with in-memory MVP design; show reconnection/room-expired handling |
+| Server restart | Restore unexpired rooms, match state, synchronized canvases, and authoritative deadlines; clients reauthenticate and reconnect |
 | Player count changes mid-match | Keep locked roster; interrupt rather than silently reweight scoring |
 
 ## 9. Explicit MVP scope
@@ -367,7 +367,7 @@ Keep the artist-to-anonymous-card mapping private on the server until ratings ar
 - AI judges, AI image scoring, generated prompts
 - Cosmetics, achievements, monetization
 - Multi-region server infrastructure and multi-node scaling
-- Guaranteed match recovery across backend process crashes
+- Multi-process or multi-region recovery and distributed timer ownership
 
 ## 10. Acceptance criteria
 

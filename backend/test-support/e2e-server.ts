@@ -1,10 +1,11 @@
-import { createServer } from "../src/server.js";
+import { createPersistentServer } from "../src/server.js";
 
 const host = "127.0.0.1";
 const port = 3100;
 const frontendOrigin = "http://127.0.0.1:4173";
 
-const { app } = createServer({
+const { app } = await createPersistentServer({
+  databaseUrl: "sqlite::memory:",
   corsOrigins: [frontendOrigin],
   logger: false,
   matchStateMachineOptions: {

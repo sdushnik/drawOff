@@ -69,6 +69,39 @@ interface ArtistCanvas {
   operations: Map<string, { type: DrawOp["type"]; fingerprints: Set<string>; strokeStyle?: string }>;
 }
 
+export interface DurableArtistCanvas {
+  canvas: CanvasSnapshot;
+  locked: boolean;
+  sequence: number;
+  operations: Array<{
+    id: string;
+    type: DrawOp["type"];
+    fingerprints: string[];
+    strokeStyle?: string;
+  }>;
+}
+
+export interface DurableMatchProgress {
+  roomCode: string;
+  phase: MatchPhase;
+  phaseStartedAt: number;
+  deadline: number | null;
+  roundIndex: number;
+  suggestions: string[];
+  prompt: string | null;
+  usedPrompts: string[];
+  canvases: Array<{ artistId: string; drawing: DurableArtistCanvas }>;
+  scores: Record<string, number>;
+  judgeRatings: Record<string, number> | null;
+  roundResult: RoundResult | null;
+  pause: {
+    playerId: string;
+    until: number;
+    remainingMs: number | null;
+  } | null;
+  generation: number;
+}
+
 export interface MatchStateMachineOptions {
   now?: () => number;
   random?: () => number;
@@ -116,6 +149,107 @@ export class MatchStateMachine {
     }
     if (!Number.isSafeInteger(this.reconnectWindowMs) || this.reconnectWindowMs <= 0) {
       throw new RangeError("reconnectWindowMs must be a positive safe integer.");
+    }
+  }
+
+  exportDurableState(): DurableMatchProgress[] {
+    return [...this.progress].map(([roomCode, progress]) => ({
+      roomCode,
+      phase: progress.phase,
+      phaseStartedAt: progress.phaseStartedAt,
+      deadline: progress.deadline,
+      roundIndex: progress.roundIndex,
+      suggestions: [...progress.suggestions],
+      prompt: progress.prompt,
+      usedPrompts: [...progress.usedPrompts],
+      canvases: [...progress.canvases].map(([artistId, drawing]) => ({
+        artistId,
+        drawing: {
+          canvas: cloneCanvas(drawing.canvas),
+          locked: drawing.locked,
+          sequence: drawing.sequence,
+          operations: [...drawing.operations].map(([id, operation]) => ({
+            id,
+            type: operation.type,
+            fingerprints: [...operation.fingerprints],
+            ...(operation.strokeStyle === undefined
+              ? {}
+              : { strokeStyle: operation.strokeStyle }),
+          })),
+        },
+      })),
+      scores: { ...progress.scores },
+      judgeRatings: progress.judgeRatings ? { ...progress.judgeRatings } : null,
+      roundResult: progress.roundResult,
+      pause: progress.pause ? { ...progress.pause } : null,
+      generation: progress.generation,
+    }));
+  }
+
+  /** Restore matches, apply offline-expired deadlines, and recreate runtime timers. */
+  restoreDurableState(states: readonly DurableMatchProgress[]): void {
+    this.dispose();
+    for (const state of states) {
+      let roomExists = true;
+      try {
+        this.rooms.getRoom(state.roomCode);
+      } catch (error) {
+        if (error instanceof RoomServiceError && error.code === "ROOM_NOT_FOUND") {
+          roomExists = false;
+        } else {
+          throw error;
+        }
+      }
+      if (!roomExists) continue;
+      this.progress.set(state.roomCode, {
+        phase: state.phase,
+        phaseStartedAt: state.phaseStartedAt,
+        deadline: state.deadline,
+        roundIndex: state.roundIndex,
+        suggestions: [...state.suggestions],
+        prompt: state.prompt,
+        usedPrompts: [...state.usedPrompts],
+        canvases: new Map(state.canvases.map(({ artistId, drawing }) => [
+          artistId,
+          {
+            canvas: cloneCanvas(drawing.canvas),
+            locked: drawing.locked,
+            sequence: drawing.sequence,
+            operations: new Map(drawing.operations.map((operation) => [
+              operation.id,
+              {
+                type: operation.type,
+                fingerprints: new Set(operation.fingerprints),
+                ...(operation.strokeStyle === undefined
+                  ? {}
+                  : { strokeStyle: operation.strokeStyle }),
+              },
+            ])),
+          },
+        ])),
+        scores: { ...state.scores },
+        judgeRatings: state.judgeRatings ? { ...state.judgeRatings } : null,
+        roundResult: state.roundResult,
+        pause: state.pause ? { ...state.pause } : null,
+        generation: state.generation,
+        timer: null,
+      });
+    }
+
+    // Run the normal transition rules for time that elapsed while offline.
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const before = JSON.stringify(this.exportDurableState());
+      this.tick();
+      if (JSON.stringify(this.exportDurableState()) === before) break;
+    }
+    const now = this.readClock();
+    for (const [roomCode, progress] of this.progress) {
+      if (progress.timer !== null) continue;
+      if (progress.pause && progress.pause.until > now) {
+        this.schedulePauseTimer(roomCode, progress);
+      } else if (!progress.pause && progress.deadline !== null && progress.deadline > now) {
+        this.scheduleTimer(roomCode, progress);
+      }
     }
   }
 
@@ -606,11 +740,12 @@ export class MatchStateMachine {
     }
   }
 
-  dispose(): void {
+  dispose(clearState = true): void {
     for (const progress of this.progress.values()) {
       if (progress.timer !== null) this.clearTimer(progress.timer);
+      progress.timer = null;
     }
-    this.progress.clear();
+    if (clearState) this.progress.clear();
   }
 
   private requireMatchMember(session: Session): {

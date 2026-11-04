@@ -1,3 +1,6 @@
 node_modules/
 backend/dist/
 packages/contracts/dist/
+backend/data/
+*.sqlite-wal
+*.sqlite-shm

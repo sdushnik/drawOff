@@ -84,6 +84,24 @@ interface RoomRecord {
   expiresAt: number;
 }
 
+export interface DurableRoomPlayer {
+  id: string;
+  name: string;
+  isHost: boolean;
+  sessionTokenHash: string;
+}
+
+export interface DurableRoomState {
+  code: string;
+  hostId: string;
+  players: DurableRoomPlayer[];
+  matchInProgress: boolean;
+  cycles: Cycles;
+  matchSchedule: MatchSchedule | null;
+  notice: string | null;
+  expiresAt: number;
+}
+
 export function getMatchRoundAssignment(
   schedule: MatchSchedule,
   roundIndex: number,
@@ -165,6 +183,61 @@ export class RoomService {
     this.now = options.now ?? Date.now;
     this.generateRoomCode = options.generateRoomCode ?? generateCryptographicRoomCode;
     this.generateId = options.generateId ?? randomUUID;
+  }
+
+  /** Export durable state only. Raw tokens and process-local connection state are excluded. */
+  exportDurableState(): DurableRoomState[] {
+    return [...this.rooms.values()].map((room) => ({
+      code: room.code,
+      hostId: room.hostId,
+      players: room.players.map((player) => ({
+        id: player.id,
+        name: player.name,
+        isHost: player.isHost,
+        sessionTokenHash: player.sessionTokenHash.toString("base64"),
+      })),
+      matchInProgress: room.matchInProgress,
+      cycles: room.cycles,
+      matchSchedule: room.matchSchedule
+        ? {
+            order: [...room.matchSchedule.order],
+            cycles: room.matchSchedule.cycles,
+            totalRounds: room.matchSchedule.totalRounds,
+          }
+        : null,
+      notice: room.notice,
+      expiresAt: room.expiresAt,
+    }));
+  }
+
+  /** Hydrate persisted rooms. Every player is disconnected until a socket authenticates. */
+  restoreDurableState(states: readonly DurableRoomState[]): void {
+    this.rooms.clear();
+    for (const state of states) {
+      if (state.expiresAt <= this.readClock()) continue;
+      this.rooms.set(state.code, {
+        code: state.code,
+        hostId: state.hostId,
+        players: state.players.map((player) => ({
+          id: player.id,
+          name: player.name,
+          isHost: player.isHost,
+          connected: false,
+          sessionTokenHash: Buffer.from(player.sessionTokenHash, "base64"),
+        })),
+        matchInProgress: state.matchInProgress,
+        cycles: state.cycles,
+        matchSchedule: state.matchSchedule
+          ? {
+              order: [...state.matchSchedule.order],
+              cycles: state.matchSchedule.cycles,
+              totalRounds: state.matchSchedule.totalRounds,
+            }
+          : null,
+        notice: state.notice,
+        expiresAt: state.expiresAt,
+      });
+    }
   }
 
   createRoom(name: string): Session {

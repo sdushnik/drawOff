@@ -272,6 +272,7 @@ async function runScenario({ browser, roomSize, durationMs }) {
       HOST: "127.0.0.1",
       PORT: String(backendPort),
       FRONTEND_ORIGINS: frontendUrl,
+      DATABASE_URL: "sqlite::memory:",
     },
   });
   const samplerStopped = { value: false };
