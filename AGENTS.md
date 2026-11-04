@@ -2,21 +2,31 @@
 
 ## Project status and stack
 
-DrawOff is a responsive browser-based multiplayer drawing game. The selected MVP stack is React, TypeScript, Vite, and Tailwind CSS for the client, with Node.js, TypeScript, Fastify, and Socket.IO on one authoritative backend process. Initial game state is in memory.
+DrawOff is a responsive browser-based multiplayer drawing game. The repository currently contains a React, TypeScript, Vite, and Tailwind CSS frontend with a browser-based mock game service. The planned MVP backend is Node.js, TypeScript, Fastify, and Socket.IO, with initial game state in memory; that backend and the root workspace have not been scaffolded yet.
 
-The application has not been scaffolded yet. Once the project setup task creates the npm workspace and scripts, use:
+Run frontend commands from `frontend/`:
 
-- `npm install` to install dependencies.
+- `npm ci` to install the locked dependencies.
 - `npm run dev` to start local development.
-- `npm test` to run the test suite.
-- `npm run build` to verify production builds.
+- `npm test` to run the Vitest suite.
+- `npm run build` to verify the production build.
 
-Keep these scripts available at the repository root. If the workspace layout requires separate package scripts, make the root scripts run the corresponding client and server commands.
+When adding the backend workspace, keep documented root-level install, development, test, and build commands available and aligned with the actual workspace layout.
 
 ## Key documents
 - `_docs/plan.md` - product behavior and feature specification
 - `_docs/tasks.md` - project backlog and implementation tasks
-- `_docs/process.md` - how work and agent execution is organized
+- `_docs/process.md` - task lifecycle and orchestrator workflow
+- `_docs/team/` - PM, Engineer, and QA role responsibilities
+- `_docs/task-template.md` - issue grooming template
+
+## Issue workflow
+
+- For issue or backlog work, follow `_docs/process.md`: the main session orchestrates one issue at a time through PM grooming, Engineer implementation, and QA verification.
+- Use the role instructions in `_docs/team/`; do not implement an issue before it has been groomed.
+- Keep each handoff sequential: the Engineer works from the groomed acceptance criteria, QA checks the resulting implementation, and a FAIL returns to the Engineer for correction.
+- The Engineer does not close issues. The orchestrator closes an issue only after QA reports PASS.
+- Do not bundle work from other issues into the current task.
 
 ## Project rules
 
@@ -28,7 +38,7 @@ Keep these scripts available at the repository root. If the workspace layout req
 - Keep Grid View and Focus View synchronized from the same server-held canvas state. Bound and validate drawing event sizes and rates, and preserve synchronized progress for reconnection.
 - Freeze the roster for a match. Maintain deterministic Judge rotation so each player Judges once per cycle and draws in every other round.
 - Preserve the confirmed product rules: private rooms, at least three players, no fixed six-player gameplay cap, no spectator role, one to three cycles, 60-second drawing rounds, and integer ratings from 0 through 100.
-- Add or update focused tests for behavior changes. Before finishing, run the relevant tests and `npm run build` when those scripts are available; report commands that could not be run.
+- Add or update focused tests for behavior changes. Run the relevant tests and production build using the actual workspace scripts (currently `cd frontend && npm test` and `cd frontend && npm run build`); report commands that could not be run.
 - Do not commit secrets, credentials, or local environment files. Keep operational capacity limits based on measurement, not an arbitrary gameplay cap.
 
 <!-- LOVABLE:BEGIN -->
@@ -42,12 +52,12 @@ Keep these scripts available at the repository root. If the workspace layout req
 > the editor, so keep the branch in a working state.
 <!-- LOVABLE:END -->
 
-# DrawOff architecture
+# Current frontend architecture
 
-- All backend calls go through the `GameService` interface in `src/services/gameService.ts`; components get it via `useGameService()` / `useGameRoom()` and never touch a transport directly — so the backend can be swapped in one place (`src/services/index.ts`).
-- `src/services/mock/` is the default backend: it runs the authoritative `GameEngine` in the browser with simulated latency, timers, demo players and sessionStorage persistence — so the whole app works with no server.
-- `src/game/engine.ts` holds every game rule and builds privacy-filtered per-player views; it is pure (injected clock/random, `tick()` for deadlines) — so a real server can reuse it and tests can drive it deterministically.
-- Pure rules/validation live in `src/game/rules.ts`; canvas ops are validated and applied by `src/game/canvasOps.ts` on both artist and backend side — so every viewer replays an identical op sequence.
-- Drawing sync uses ordered ops (stroke append, fill, clear, undo) rendered incrementally by `src/game/render.ts`; bucket fill is one op replayed via the pure `floodFill` — never per-pixel network events.
-- tsconfig is very strict (noUncheckedIndexedAccess, noPropertyAccessFromIndexSignature); keep code compliant rather than loosening it.
-- Tests live next to the code (`*.test.ts[x]`) and run with `bunx vitest run`.
+- Frontend backend calls go through `frontend/src/services/gameService.ts`; components use the service/provider hooks rather than accessing a transport directly. `frontend/src/services/index.ts` currently selects the mock implementation.
+- `frontend/src/services/mock/` is a browser-only demo service. It runs the game engine locally with simulated latency, timers, demo players, and session storage; it is not a networked or authoritative backend.
+- `frontend/src/game/engine.ts` contains the current deterministic game rules and privacy-filtered player views. It injects clock/random sources for testing and is a candidate for reuse by a future authoritative server.
+- Pure rules and validation live in `frontend/src/game/rules.ts`; drawing operations are validated/applied in `frontend/src/game/canvasOps.ts` and rendered by `frontend/src/game/render.ts`.
+- Drawing uses ordered operations (stroke append, fill, clear, undo); bucket fill is a single operation replayed by the pure `floodFill`, never a per-pixel network event.
+- TypeScript is strict (`noUncheckedIndexedAccess`, `noPropertyAccessFromIndexSignature`); keep the configuration strict rather than loosening it to accommodate code.
+- Tests live next to the code (`*.test.ts[x]`) and run with `cd frontend && npm test`.
