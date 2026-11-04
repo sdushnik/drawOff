@@ -28,6 +28,10 @@ export const MATCH_PHASE_DURATIONS_MS = {
 } as const;
 export const RECONNECT_WINDOW_MS = 30_000;
 
+export type MatchPhaseDurations = {
+  [Phase in keyof typeof MATCH_PHASE_DURATIONS_MS]: number;
+};
+
 type MatchPhase =
   | "ROLE_REVEAL"
   | "WORD_SELECTION"
@@ -72,6 +76,8 @@ export interface MatchStateMachineOptions {
   clearTimer?: (timer: TimerHandle) => void;
   onTransition?: (roomCode: string) => void;
   maxCanvasActionsPerRoom?: number;
+  phaseDurationsMs?: Partial<MatchPhaseDurations>;
+  reconnectWindowMs?: number;
 }
 
 export class MatchStateMachine {
@@ -82,6 +88,8 @@ export class MatchStateMachine {
   private readonly clearTimer: (timer: TimerHandle) => void;
   private readonly onTransition: (roomCode: string) => void;
   private readonly maxCanvasActionsPerRoom: number;
+  private readonly phaseDurations: MatchPhaseDurations;
+  private readonly reconnectWindowMs: number;
 
   constructor(
     private readonly rooms: RoomService,
@@ -93,14 +101,27 @@ export class MatchStateMachine {
     this.clearTimer = options.clearTimer ?? clearTimeout;
     this.onTransition = options.onTransition ?? (() => undefined);
     this.maxCanvasActionsPerRoom = options.maxCanvasActionsPerRoom ?? 50_000;
+    this.phaseDurations = {
+      ...MATCH_PHASE_DURATIONS_MS,
+      ...options.phaseDurationsMs,
+    };
+    this.reconnectWindowMs = options.reconnectWindowMs ?? RECONNECT_WINDOW_MS;
     if (!Number.isSafeInteger(this.maxCanvasActionsPerRoom) || this.maxCanvasActionsPerRoom <= 0) {
       throw new RangeError("maxCanvasActionsPerRoom must be a positive safe integer.");
+    }
+    for (const [phase, duration] of Object.entries(this.phaseDurations)) {
+      if (!Number.isSafeInteger(duration) || duration <= 0) {
+        throw new RangeError(`${phase} duration must be a positive safe integer.`);
+      }
+    }
+    if (!Number.isSafeInteger(this.reconnectWindowMs) || this.reconnectWindowMs <= 0) {
+      throw new RangeError("reconnectWindowMs must be a positive safe integer.");
     }
   }
 
   startMatch(session: Session): void {
     const now = this.readClock();
-    const deadline = now + MATCH_PHASE_DURATIONS_MS.ROLE_REVEAL;
+    const deadline = now + this.phaseDurations.ROLE_REVEAL;
     if (!Number.isFinite(deadline)) {
       throw new RoomServiceError("REQUEST_FAILED", "The match deadline could not be set.");
     }
@@ -156,7 +177,7 @@ export class MatchStateMachine {
     if (!missingPlayerId) return;
 
     const now = this.readClock();
-    const until = now + RECONNECT_WINDOW_MS;
+    const until = now + this.reconnectWindowMs;
     if (!Number.isFinite(until)) {
       throw new RoomServiceError("REQUEST_FAILED", "The reconnect deadline could not be set.");
     }
@@ -295,7 +316,7 @@ export class MatchStateMachine {
 
     this.requirePhase(progress, "JUDGING");
     const now = this.requireBeforeDeadline(progress);
-    if (!Number.isFinite(now + MATCH_PHASE_DURATIONS_MS.ROUND_RESULT)) {
+    if (!Number.isFinite(now + this.phaseDurations.ROUND_RESULT)) {
       throw new RoomServiceError("REQUEST_FAILED", "The match deadline could not be set.");
     }
 
@@ -336,7 +357,7 @@ export class MatchStateMachine {
       session.roomCode,
       progress,
       "ROUND_RESULT",
-      MATCH_PHASE_DURATIONS_MS.ROUND_RESULT,
+      this.phaseDurations.ROUND_RESULT,
       now,
     );
   }
@@ -704,7 +725,7 @@ export class MatchStateMachine {
           roomCode,
           progress,
           "WORD_SELECTION",
-          MATCH_PHASE_DURATIONS_MS.WORD_SELECTION,
+          this.phaseDurations.WORD_SELECTION,
           progress.deadline,
         );
         break;
@@ -724,8 +745,8 @@ export class MatchStateMachine {
           ? room.matchSchedule.order.length - 1
           : 0;
         const judgingDuration = Math.max(
-          MATCH_PHASE_DURATIONS_MS.JUDGE_MINIMUM,
-          MATCH_PHASE_DURATIONS_MS.JUDGE_PER_ARTIST * artistCount,
+          this.phaseDurations.JUDGE_MINIMUM,
+          this.phaseDurations.JUDGE_PER_ARTIST * artistCount,
         );
         this.transition(
           roomCode,
@@ -749,7 +770,7 @@ export class MatchStateMachine {
             roomCode,
             progress,
             "ROLE_REVEAL",
-            MATCH_PHASE_DURATIONS_MS.ROLE_REVEAL,
+            this.phaseDurations.ROLE_REVEAL,
             progress.deadline,
           );
         }
@@ -880,7 +901,7 @@ export class MatchStateMachine {
       roomCode,
       progress,
       "DRAWING",
-      MATCH_PHASE_DURATIONS_MS.DRAWING,
+      this.phaseDurations.DRAWING,
       startedAt,
     );
   }

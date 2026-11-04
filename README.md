@@ -43,6 +43,18 @@ Run the test suites for all workspaces:
 npm test
 ```
 
+Run the real multi-browser frontend/backend flow:
+
+```sh
+npx playwright install chromium
+npm run test:e2e
+```
+
+The end-to-end command starts an isolated Fastify/Socket.IO backend and Vite
+frontend, then drives separate Chromium browser contexts through the full game
+loop and recovery scenarios. It uses state-based waits, cleans up contexts and
+servers on failure, and retains traces, screenshots, and video for diagnostics.
+
 ## Production build
 
 Build all workspaces:
