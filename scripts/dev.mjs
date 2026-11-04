@@ -11,7 +11,7 @@ const children = workspaces.map((workspace) =>
         ? { VITE_GAME_SERVER_URL: `http://localhost:${process.env["PORT"] ?? "3000"}` }
         : {}),
       ...(workspace === "backend" && process.env["DATABASE_URL"] === undefined
-        ? { DATABASE_URL: "sqlite:./backend/data/drawoff.sqlite" }
+        ? { DATABASE_URL: "sqlite:./data/drawoff.sqlite" }
         : {}),
     },
   }),

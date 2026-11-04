@@ -193,17 +193,32 @@ function registerRoomHandlers(
     await write;
   };
 
-  const persistMutation = async <T>(operation: () => T): Promise<T> => {
+  const persistMutation = async <T>(operation: () => T | Promise<T>): Promise<T> => {
     const roomsBefore = roomService.exportDurableState();
     const matchesBefore = matchStateMachine.exportDurableState();
     try {
-      const result = operation();
+      const result = await operation();
       await persist();
       return result;
     } catch (error) {
       if (error instanceof RoomPersistenceError) {
         roomService.restoreDurableState(roomsBefore);
         matchStateMachine.restoreDurableState(matchesBefore);
+      } else {
+        const roomsAfter = roomService.exportDurableState();
+        const removedRoom = roomsBefore.some(
+          (room) => !roomsAfter.some((candidate) => candidate.code === room.code),
+        );
+        if (removedRoom) {
+          matchStateMachine.pruneMissingRooms();
+          try {
+            await persist();
+          } catch (persistenceError) {
+            roomService.restoreDurableState(roomsBefore);
+            matchStateMachine.restoreDurableState(matchesBefore);
+            throw persistenceError;
+          }
+        }
       }
       throw error;
     }
@@ -265,7 +280,10 @@ function registerRoomHandlers(
   const cleanupTimer = setInterval(
     () => {
       const removed = roomService.purgeExpiredRooms();
-      if (removed > 0) void persist().catch(() => undefined);
+      if (removed > 0) {
+        matchStateMachine.pruneMissingRooms();
+        void persist().catch(() => undefined);
+      }
     },
     resourceLimits.roomCleanupIntervalMs,
   );
@@ -300,14 +318,14 @@ function registerRoomHandlers(
     );
   };
 
-  const detach = (
+  const detach = async (
     socket: Socket<ClientSocketEvents, ServerSocketEvents>,
     markDisconnected: boolean,
-  ) => {
+  ): Promise<void> => {
     const session = attachedSessions.get(socket.id);
     if (!session) return;
     attachedSessions.delete(socket.id);
-    socket.leave(session.roomCode);
+    await socket.leave(session.roomCode);
 
     const key = playerKey(session);
     const sockets = playerSockets.get(key);
@@ -316,9 +334,10 @@ function registerRoomHandlers(
       playerSockets.delete(key);
       if (markDisconnected && !shuttingDown) {
         try {
-          roomService.setConnected(session, false);
-          matchStateMachine.playerDisconnected(session);
-          void persist().catch(() => undefined);
+          await persistMutation(() => {
+            roomService.setConnected(session, false);
+            matchStateMachine.playerDisconnected(session);
+          });
           publishRoom(session.roomCode);
         } catch {
           // The room or player may already have been removed.
@@ -327,10 +346,10 @@ function registerRoomHandlers(
     }
   };
 
-  const attach = (
+  const attach = async (
     socket: Socket<ClientSocketEvents, ServerSocketEvents>,
     unverifiedSession: Session,
-  ) => {
+  ): Promise<Session> => {
     const session = roomService.resumeSession(unverifiedSession);
     const currentSession = attachedSessions.get(socket.id);
     if (
@@ -338,7 +357,7 @@ function registerRoomHandlers(
       (currentSession.roomCode !== session.roomCode ||
         currentSession.playerId !== session.playerId)
     ) {
-      detach(socket, true);
+      await detach(socket, true);
     }
 
     const key = playerKey(session);
@@ -350,7 +369,7 @@ function registerRoomHandlers(
     const wasDisconnected = sockets.size === 0;
     sockets.add(socket.id);
     attachedSessions.set(socket.id, session);
-    void socket.join(session.roomCode);
+    await socket.join(session.roomCode);
     if (wasDisconnected) {
       roomService.setConnected(session, true);
       matchStateMachine.playerReconnected(session);
@@ -373,7 +392,10 @@ function registerRoomHandlers(
   };
 
   io.on("connection", (socket) => {
-    socket.on("disconnect", () => detach(socket, true));
+    socket.on("disconnect", (reason) => {
+      if (reason === "server shutting down") shuttingDown = true;
+      void detach(socket, reason !== "server shutting down");
+    });
 
     socket.on("room:create", (payload, acknowledge) => {
       handleSocketRequest(
@@ -388,9 +410,9 @@ function registerRoomHandlers(
             resourceLimits.roomCreatesPerConnection,
             "room creation",
           );
-          const session = await persistMutation(() => {
+          const session = await persistMutation(async () => {
             const created = roomService.createRoom(name);
-            attach(socket, created);
+            await attach(socket, created);
             return created;
           });
           publishRoom(session.roomCode);
@@ -418,9 +440,9 @@ function registerRoomHandlers(
             resourceLimits.roomCodeGuessesPerCode,
             "attempts for this room code",
           );
-          const session = await persistMutation(() => {
+          const session = await persistMutation(async () => {
             const joined = roomService.joinRoom(code, name);
-            attach(socket, joined);
+            await attach(socket, joined);
             return joined;
           });
           publishRoom(session.roomCode);
@@ -468,9 +490,9 @@ function registerRoomHandlers(
         acknowledge,
         async ({ session }) => {
           assertAttached(socket, session);
-          await persistMutation(() => {
+          await persistMutation(async () => {
             matchStateMachine.playerLeft(session);
-            detach(socket, false);
+            await detach(socket, false);
           });
           publishRoom(session.roomCode);
           return {};
@@ -487,7 +509,7 @@ function registerRoomHandlers(
         acknowledge,
         async ({ session, playerId }) => {
           assertAttached(socket, session);
-          await persistMutation(() => {
+          await persistMutation(async () => {
             roomService.kickPlayer(session, playerId);
             for (const [socketId, attached] of attachedSessions) {
               if (
@@ -495,7 +517,7 @@ function registerRoomHandlers(
                 attached.playerId === playerId
               ) {
                 const target = io.sockets.sockets.get(socketId);
-                if (target) detach(target, false);
+                if (target) await detach(target, false);
               }
             }
           });

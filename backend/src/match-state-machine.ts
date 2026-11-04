@@ -186,6 +186,21 @@ export class MatchStateMachine {
     }));
   }
 
+  /** Remove progress whose room was lazily expired or deleted by the room service. */
+  pruneMissingRooms(): void {
+    for (const [roomCode, progress] of this.progress) {
+      try {
+        this.rooms.getRoom(roomCode);
+      } catch (error) {
+        if (!(error instanceof RoomServiceError) || error.code !== "ROOM_NOT_FOUND") {
+          throw error;
+        }
+        if (progress.timer !== null) this.clearTimer(progress.timer);
+        this.progress.delete(roomCode);
+      }
+    }
+  }
+
   /** Restore matches, apply offline-expired deadlines, and recreate runtime timers. */
   restoreDurableState(states: readonly DurableMatchProgress[]): void {
     this.dispose();

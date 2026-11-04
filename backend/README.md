@@ -28,12 +28,14 @@ included in the response.
 SQLite and run the versioned migrations before starting the server:
 
 ```sh
-export DATABASE_URL=sqlite:./backend/data/drawoff.sqlite
+export DATABASE_URL=sqlite:./data/drawoff.sqlite
 npm run db:migrate
 npm run dev --workspace @drawoff/backend
 ```
 
-The root `npm run dev` command supplies that local SQLite URL when the variable
+Relative SQLite paths are resolved from the backend workspace directory because
+npm workspace scripts run with `backend/` as their working directory. The root
+`npm run dev` command supplies `sqlite:./data/drawoff.sqlite` when the variable
 is not already set. `backend/data/` is ignored by Git; keep the file on durable
 storage anywhere rooms must survive process restarts. The migration command is
 idempotent and creates the parent directory and empty database on a clean
