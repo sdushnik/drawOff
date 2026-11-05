@@ -9,6 +9,7 @@ import type { GameRoom } from "@/hooks/useGameRoom";
 import { useCountdown } from "@/hooks/useGameRoom";
 import { cn } from "@/lib/utils";
 import { DrawingCanvas } from "./DrawingCanvas";
+import { TimelapseCanvas } from "./TimelapseCanvas";
 import { nameOf } from "./util";
 
 function Center({ children, className }: { children: ReactNode; className?: string }) {
@@ -170,7 +171,7 @@ export function RoundResults({ view, clockOffset }: { view: PlayerView; clockOff
             const winner = r.winners.includes(e.artistId);
             return (
               <article key={e.label} className={cn("sticker animate-pop overflow-hidden", winner && "ring-4 ring-secondary")} style={{ animationDelay: `${i * 90}ms` }}>
-                <DrawingCanvas canvas={e.canvas} ariaLabel={`${nameOf(view, e.artistId)}'s drawing`} />
+                <TimelapseCanvas canvas={e.canvas} ariaLabel={`${nameOf(view, e.artistId)}'s drawing`} />
                 <div className="flex items-center justify-between gap-2 border-t-[2.5px] border-ink px-3 py-2">
                   <span className="min-w-0 truncate font-semibold">
                     {winner && <Crown className="mr-1 inline size-4" />}

@@ -70,7 +70,7 @@ Description: Display the prompt and all frozen drawings under anonymous numbered
 
 ## 18. Calculating and revealing round results
 Goal: Award server-calculated points and reveal identities only after ratings are finalized.
-Description: Accept one final rating submission from the Judge, map anonymous drawings to Artists only on the server, and award each Artist points equal to their rating. Then reveal names and ratings, show all round top scorers and updated cumulative totals, and test scoring, ties, and duplicate-submission handling.
+Description: Accept one final rating submission from the Judge, map anonymous drawings to Artists only on the server, and award each Artist points equal to their rating. Then reveal names and ratings, show all round top scorers and updated cumulative totals, and offer on-demand timelapse playback for each revealed drawing. Test scoring, ties, duplicate-submission handling, and deterministic timelapse frames.
 
 ## 19. Building final results and rematches
 Goal: Show match winners and allow the host to start a fresh match in the same room.

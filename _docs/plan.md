@@ -150,7 +150,7 @@ Over one cycle each player is Judge **once** and Artist **N − 1 times**. Over 
 
 **Why:** Live Judge spectating is a core part of the party experience; server-mediated, bounded updates preserve privacy between Artists while keeping the Judge's views responsive.
 
-**Alternatives:** Broadcasting Artist strokes to other Artists, layers, shapes, image uploads, and drawing replays (not needed for the MVP loop).
+**Alternatives:** Broadcasting Artist strokes to other Artists, layers, shapes, and image uploads.
 
 ### 4.6 Anonymous judging gallery
 
@@ -219,7 +219,7 @@ Over one cycle each player is Judge **once** and Artist **N − 1 times**. Over 
 
 ### 4.10 Results and rematches
 
-- After each round: reveal all Artists, ratings, top drawing(s), and cumulative points.
+- After each round: reveal all Artists, ratings, top drawing(s), and cumulative points. Each revealed drawing has an on-demand, short timelapse reconstructed from its retained canvas actions; it does not autoplay.
 - At match end: display winner(s), ranked totals, number of rounds and cycles, and a **Play Again** option for the host.
 - Don't add extensive player statistics in v1.
 
@@ -240,7 +240,7 @@ Over one cycle each player is Judge **once** and Artist **N − 1 times**. Over 
 | Drawing — Judge | 75-second timer with optional final-10-second sound; anonymous ready count; live anonymous canvases in Grid View; select any canvas for Focus View; return to Grid or focus another canvas at any time; no drawing or editing controls |
 | Judging — Judge | Prompt, anonymous drawing gallery, rating control per image, rated-count progress, Submit All |
 | Judging — Artists | Waiting for the Judge; no submitted ratings or identities leaked prematurely |
-| Round Results | Drawings with artist names, 0–100 ratings, round winner(s), points/leaderboard |
+| Round Results | Drawings with artist names, 0–100 ratings, per-drawing timelapse playback, round winner(s), points/leaderboard |
 | Final Results | Match winner(s), leaderboard, rematch/back to lobby |
 | Recovery/Error | Reconnecting, waiting for required player, match interrupted, invalid code |
 
@@ -365,7 +365,7 @@ Keep the artist-to-anonymous-card mapping private on the server until ratings ar
 - Accounts, persistent profiles, friends lists, global leaderboards
 - Voice/video chat, chat, spectator voting
 - Artist-to-Artist drawing visibility or shared canvases
-- Layers, advanced brushes, drawing replay, image uploads
+- Layers, advanced brushes, image uploads
 - AI judges, AI image scoring, generated prompts
 - Cosmetics, achievements, monetization
 - Multi-region server infrastructure and multi-node scaling
