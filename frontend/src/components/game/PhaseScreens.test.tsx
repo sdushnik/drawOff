@@ -180,6 +180,7 @@ describe("RoomScreen confirmed prompt", () => {
         phase: "DRAWING",
         role,
         prompt: "confirmed prompt",
+        drawingStatus: { ready: 1, total: 2 },
         liveCanvases: role === "judge" ? [] : null,
         myCanvas: role === "artist" ? { canvas: emptyCanvas(), locked: false } : null,
       });
@@ -188,6 +189,7 @@ describe("RoomScreen confirmed prompt", () => {
 
       expect(screen.getByText("confirmed prompt")).toBeInTheDocument();
       expect(screen.getByText(role === "judge" ? "They're drawing" : "Draw this")).toBeInTheDocument();
+      expect(screen.getByRole("status")).toHaveTextContent("1 / 2 Artists ready");
       if (role === "artist") expect(screen.getByTestId("artist-board")).toBeInTheDocument();
       if (role === "judge") expect(screen.getByTestId("judge-live-view")).toBeInTheDocument();
     },

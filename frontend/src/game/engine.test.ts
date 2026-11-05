@@ -257,14 +257,17 @@ describe("drawing privacy and canvas sync", () => {
   it("ends drawing immediately when every Artist submits", () => {
     const ctx = toDrawing();
     expect(ctx.view(ctx.host).deadline! - ctx.view(ctx.host).serverNow).toBe(75_000);
+    expect(ctx.view(ctx.host).drawingStatus).toEqual({ ready: 0, total: 3 });
 
-    for (const artist of ctx.artists.slice(0, -1)) {
+    for (const [index, artist] of ctx.artists.slice(0, -1).entries()) {
       ctx.engine.submitCanvas(ctx.code, artist.token);
       expect(ctx.view(ctx.host).phase).toBe("DRAWING");
+      expect(ctx.view(ctx.host).drawingStatus).toEqual({ ready: index + 1, total: 3 });
     }
     ctx.engine.submitCanvas(ctx.code, ctx.artists.at(-1)!.token);
 
     expect(ctx.view(ctx.host).phase).toBe("JUDGING");
+    expect(ctx.view(ctx.host).drawingStatus).toBeNull();
     expect(ctx.view(ctx.judge).gallery).toHaveLength(ctx.artists.length);
     expect(ctx.artists.every((artist) => ctx.view(artist).myCanvas?.locked)).toBe(true);
   });

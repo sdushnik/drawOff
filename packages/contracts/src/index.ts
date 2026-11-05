@@ -208,6 +208,15 @@ export const playerViewSchema = z
     role: roleSchema.nullable(),
     prompt: promptSchema.nullable(),
     suggestions: z.array(z.string()).nullable(),
+    drawingStatus: z
+      .object({
+        ready: z.number().int().nonnegative(),
+        total: z.number().int().positive(),
+      })
+      .strict()
+      .refine(({ ready, total }) => ready <= total, "Ready Artists cannot exceed the total.")
+      .nullable()
+      .default(null),
     myCanvas: z
       .object({ canvas: canvasSnapshotSchema, locked: z.boolean() })
       .strict()

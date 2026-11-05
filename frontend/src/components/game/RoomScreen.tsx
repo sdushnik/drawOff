@@ -1,5 +1,6 @@
 import { useNavigate, Link } from "@tanstack/react-router";
 import { Gavel, Palette } from "lucide-react";
+import type { PlayerView } from "@drawoff/contracts";
 import type { GameRoom } from "@/hooks/useGameRoom";
 import { useCountdown } from "@/hooks/useGameRoom";
 import { ArtistBoard } from "./ArtistBoard";
@@ -52,7 +53,15 @@ export function RoomScreen({ room }: { room: GameRoom }) {
               {view.role === "judge" ? "Judge" : "Artist"}
             </span>
           )}
-          {showTimer && <Timer deadline={view.deadline} clockOffset={room.clockOffset} frozen={paused} warnAt={view.phase === "JUDGING" ? 15 : 10} />}
+          {showTimer && (
+            <Timer
+              deadline={view.deadline}
+              clockOffset={room.clockOffset}
+              frozen={paused}
+              warnAt={view.phase === "JUDGING" ? 15 : 10}
+              countdownSound={view.phase === "DRAWING"}
+            />
+          )}
         </div>
       </header>
 
@@ -64,6 +73,7 @@ export function RoomScreen({ room }: { room: GameRoom }) {
         {view.phase === "DRAWING" && view.role === "artist" && view.myCanvas && (
           <div className="flex flex-col gap-4">
             <PromptBanner label="Draw this" prompt={view.prompt ?? ""} />
+            <DrawingReadyStatus status={view.drawingStatus} />
             <ArtistBoard
               key={`${m?.roundIndex}-${view.prompt}`}
               initial={view.myCanvas.canvas}
@@ -78,6 +88,7 @@ export function RoomScreen({ room }: { room: GameRoom }) {
         {view.phase === "DRAWING" && view.role === "judge" && view.liveCanvases && (
           <div className="flex flex-col gap-4">
             <PromptBanner label="They're drawing" prompt={view.prompt ?? ""} hint="Watching live · tap a drawing to focus" />
+            <DrawingReadyStatus status={view.drawingStatus} />
             <JudgeLiveView canvases={view.liveCanvases} />
           </div>
         )}
@@ -111,6 +122,19 @@ export function RoomScreen({ room }: { room: GameRoom }) {
       </main>
 
       <PauseOverlay view={view} clockOffset={room.clockOffset} />
+    </div>
+  );
+}
+
+function DrawingReadyStatus({ status }: { status: PlayerView["drawingStatus"] }) {
+  if (!status) return null;
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="sticker-sm self-start bg-card px-3 py-1 text-sm font-bold tabular-nums"
+    >
+      {status.ready} / {status.total} Artists ready
     </div>
   );
 }

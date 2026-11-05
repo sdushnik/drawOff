@@ -672,7 +672,7 @@ function registerRoomHandlers(
           enforceAttachedRateLimits(socket, "submissions");
           const authenticated = attachedSessions.get(socket.id)!;
           await persistMutation(() => matchStateMachine.submitCanvas(authenticated));
-          publishDrawingViews(authenticated.roomCode, authenticated.playerId);
+          publishRoom(authenticated.roomCode);
           return {};
         },
       );

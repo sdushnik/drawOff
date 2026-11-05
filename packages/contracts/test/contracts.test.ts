@@ -403,4 +403,8 @@ test("server-to-client payloads reject malformed data and unknown keys", () => {
   );
   assert.equal(playerViewSchema.safeParse({ ...view, phase: "UNKNOWN" }).success, false);
   assert.equal(playerViewSchema.safeParse({ ...view, cycles: 4 }).success, false);
+  assert.equal(
+    playerViewSchema.safeParse({ ...view, drawingStatus: { ready: 3, total: 2 } }).success,
+    false,
+  );
 });

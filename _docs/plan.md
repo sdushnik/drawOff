@@ -142,7 +142,9 @@ Over one cycle each player is Judge **once** and Artist **N − 1 times**. Over 
 - The Judge can watch all live canvases in Grid View or select one for Focus View. Both views stay synchronized with the same server-held canvas state.
 - The Judge is a read-only viewer and cannot draw, edit a canvas, or use Artist drawing tools.
 - Artists may submit early to mark their artwork ready; while the phase remains active, pressing the control again resumes drawing.
+- Show every participant an anonymous `ready / total Artists` count during drawing; never attach names or canvas data to that progress indicator.
 - Move to judging as soon as every Artist is ready. Otherwise, at the server-authoritative 75-second deadline, freeze every canvas, including blank work.
+- Play a local countdown tick during the final 10 drawing seconds, with a persistent mute control; audio does not control or synchronize the server timer.
 - Retain the latest synchronized canvas state on the server and replay/resynchronize it when the Judge or an Artist reconnects.
 - Coalesce or batch high-frequency drawing updates, bound event payloads and rates, and use state checkpoints as needed to keep larger rooms responsive without making final drawing snapshots the only transmitted data.
 
@@ -234,8 +236,8 @@ Over one cycle each player is Judge **once** and Artist **N − 1 times**. Over 
 | Role Reveal | Round X/Y, current Judge, all Artist participants, user's role |
 | Word Selection — Judge | Three suggestions, custom input, countdown, confirm |
 | Word Waiting — Artists | Waiting for Judge to select a word |
-| Drawing — Artists | Prompt, 75-second timer, canvas and tools, Submit/Continue control |
-| Drawing — Judge | 75-second timer; live anonymous canvases in Grid View; select any canvas for Focus View; return to Grid or focus another canvas at any time; no drawing or editing controls |
+| Drawing — Artists | Prompt, 75-second timer with optional final-10-second sound, anonymous ready count, canvas and tools, Submit/Continue control |
+| Drawing — Judge | 75-second timer with optional final-10-second sound; anonymous ready count; live anonymous canvases in Grid View; select any canvas for Focus View; return to Grid or focus another canvas at any time; no drawing or editing controls |
 | Judging — Judge | Prompt, anonymous drawing gallery, rating control per image, rated-count progress, Submit All |
 | Judging — Artists | Waiting for the Judge; no submitted ratings or identities leaked prematurely |
 | Round Results | Drawings with artist names, 0–100 ratings, round winner(s), points/leaderboard |

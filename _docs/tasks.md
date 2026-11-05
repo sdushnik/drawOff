@@ -90,7 +90,7 @@ Description: Enforce drawing-event payload and frequency limits, validate event 
 
 ## 23. Polishing responsive and accessible gameplay screens
 Goal: Make drawing, live spectating, judging, and results usable on desktop and mobile browsers.
-Description: Review touch targets, canvas sizing, scrolling, focus behavior, readable timers, and rating controls across screen sizes. Ensure Grid View remains understandable with many canvases and Focus View stays legible without obscuring phase or time information.
+Description: Review touch targets, canvas sizing, scrolling, focus behavior, readable timers, optional countdown audio, anonymous ready progress, and rating controls across screen sizes. Ensure Grid View remains understandable with many canvases and Focus View stays legible without obscuring phase or time information.
 
 ## 24. Testing end-to-end multiplayer game flows
 Goal: Verify the full private-room game loop across multiple browser clients.

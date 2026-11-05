@@ -572,13 +572,16 @@ test("drawing lasts 75 seconds and ends immediately when every Artist submits", 
   const [firstArtist, secondArtist, thirdArtist] = fixture.sessions.slice(1);
   assert.ok(firstArtist && secondArtist && thirdArtist);
   assert.equal(fixture.view().deadline! - fixture.view().serverNow, 75_000);
+  assert.deepEqual(fixture.view().drawingStatus, { ready: 0, total: 3 });
 
   fixture.machine.submitCanvas(firstArtist);
   fixture.machine.submitCanvas(secondArtist);
   assert.equal(fixture.view().phase, "DRAWING");
+  assert.deepEqual(fixture.view().drawingStatus, { ready: 2, total: 3 });
 
   fixture.machine.submitCanvas(firstArtist);
   assert.equal(fixture.view(firstArtist).myCanvas?.locked, false);
+  assert.deepEqual(fixture.view().drawingStatus, { ready: 1, total: 3 });
   assert.equal(
     fixture.machine.sendDrawOps(firstArtist, [{ type: "clear", id: "resumed-clear" }]),
     true,
@@ -588,6 +591,7 @@ test("drawing lasts 75 seconds and ends immediately when every Artist submits", 
 
   fixture.machine.submitCanvas(thirdArtist);
   assert.equal(fixture.view().phase, "JUDGING");
+  assert.equal(fixture.view().drawingStatus, null);
   assert.ok(fixture.view().liveCanvases?.every(({ locked }) => locked));
 });
 

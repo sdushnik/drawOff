@@ -309,8 +309,16 @@ test("live drawing ops are private, ordered, idempotent, and recover from a miss
       judgeSocket,
       (view) => view.liveCanvases?.find(({ label }) => label === "Drawing 1")?.locked === true,
     );
+    const readyProgress = waitForView(
+      otherArtistSocket,
+      (view) => view.drawingStatus?.ready === 1,
+      "the anonymous ready count",
+    );
     assert.equal((await request(artistSocket, "drawing:submit", { session: artist })).ok, true);
     assert.equal((await lockedView).liveCanvases?.[0]?.sequence, 5);
+    const otherArtistProgress = await readyProgress;
+    assert.deepEqual(otherArtistProgress.drawingStatus, { ready: 1, total: 2 });
+    assert.equal(otherArtistProgress.liveCanvases, null);
     const afterLock = await request(artistSocket, "drawing:ops", {
       session: artist,
       ops: [{ type: "fill", id: "after-lock", x: 10, y: 10, color: "#0090ff" }],

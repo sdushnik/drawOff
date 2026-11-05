@@ -449,6 +449,13 @@ export class GameEngine {
       role,
       prompt: inMatch || room.phase === "ROUND_RESULT" ? promptVisible : null,
       suggestions: role === "judge" && room.phase === "WORD_SELECTION" ? [...round!.suggestions] : null,
+      drawingStatus:
+        room.phase === "DRAWING" && round
+          ? {
+              ready: round.drawings.filter(({ locked }) => locked).length,
+              total: round.artistIds.length,
+            }
+          : null,
       myCanvas:
         role === "artist" && myDrawing && (room.phase === "DRAWING" || room.phase === "JUDGING")
           ? { canvas: cloneCanvas(myDrawing.canvas), locked: myDrawing.locked }

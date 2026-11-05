@@ -683,6 +683,13 @@ export class MatchStateMachine {
         progress.phase === "WORD_SELECTION" && role === "judge"
           ? [...progress.suggestions]
           : null,
+      drawingStatus:
+        progress.phase === "DRAWING"
+          ? {
+              ready: [...progress.canvases.values()].filter(({ locked }) => locked).length,
+              total: assignment.artistIds.length,
+            }
+          : null,
       myCanvas:
         role === "artist" &&
         ["DRAWING", "JUDGING", "ROUND_RESULT", "FINAL_RESULT"].includes(progress.phase)
