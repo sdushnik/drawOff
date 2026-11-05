@@ -20,6 +20,14 @@ vi.mock("./JudgingGallery", () => ({
     </div>
   ),
 }));
+vi.mock("./ReactionBar", () => ({
+  ReactionBar: () => <div data-testid="reaction-bar" />,
+}));
+vi.mock("./TimelapseCanvas", () => ({
+  TimelapseCanvas: ({ ariaLabel }: { ariaLabel: string }) => (
+    <div role="img" aria-label={ariaLabel} />
+  ),
+}));
 vi.mock("./Timer", () => ({ Timer: () => null }));
 
 function makeView(overrides: Partial<PlayerView> = {}): PlayerView {
@@ -66,6 +74,8 @@ function makeRoom(): GameRoom {
     clockOffset: 0,
     act: vi.fn().mockResolvedValue(true),
     sendDrawOps: vi.fn(),
+    sendReaction: vi.fn().mockResolvedValue(true),
+    reactions: [],
     leave: vi.fn(),
   } as unknown as GameRoom;
 }
@@ -202,6 +212,62 @@ describe("RoomScreen confirmed prompt", () => {
       if (role === "judge") expect(screen.getByTestId("judge-live-view")).toBeInTheDocument();
     },
   );
+
+  it.each(["ROUND_RESULT", "FINAL_RESULT"] as const)(
+    "shows emoji reactions during %s",
+    (phase) => {
+      const roundResult = phase === "ROUND_RESULT"
+        ? {
+            roundIndex: 4,
+            prompt: "confirmed prompt",
+            judgeId: "judge",
+            entries: [{
+              label: "Drawing 1",
+              artistId: "artist-1",
+              rating: 80,
+              canvas: emptyCanvas(),
+            }],
+            winners: ["artist-1"],
+          }
+        : null;
+      const finalResult = phase === "FINAL_RESULT"
+        ? {
+            winners: ["artist-1"],
+            standings: [
+              { playerId: "artist-1", score: 80 },
+              { playerId: "judge", score: 0 },
+              { playerId: "artist-2", score: 0 },
+            ],
+            rounds: 12,
+            cycles: 2 as const,
+          }
+        : null;
+      const view = makeView({
+        phase,
+        role: phase === "FINAL_RESULT" ? null : "judge",
+        prompt: "confirmed prompt",
+        deadline: phase === "FINAL_RESULT" ? null : Date.now() + 12_000,
+        roundResult,
+        finalResult,
+      });
+
+      render(<RoomScreen room={{ ...makeRoom(), view } as GameRoom} />);
+
+      expect(screen.getByTestId("reaction-bar")).toBeInTheDocument();
+    },
+  );
+
+  it("keeps emoji reactions hidden outside result phases", () => {
+    const view = makeView({
+      phase: "JUDGING",
+      prompt: "confirmed prompt",
+      gallery: [],
+    });
+
+    render(<RoomScreen room={{ ...makeRoom(), view } as GameRoom} />);
+
+    expect(screen.queryByTestId("reaction-bar")).not.toBeInTheDocument();
+  });
 
   it("shows each anonymous drawing only once in the judging gallery", () => {
     const view = makeView({

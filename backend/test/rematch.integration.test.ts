@@ -4,6 +4,7 @@ import type {
   ClientToServerPayloads,
   ClientToServerResponses,
   PlayerView,
+  Reaction,
   ServiceErrorPayload,
   Session,
 } from "@drawoff/contracts";
@@ -21,6 +22,7 @@ type ClientEvents = {
 type ServerEvents = {
   error: (payload: ServiceErrorPayload) => void;
   "state:update": (view: PlayerView) => void;
+  "reaction:new": (reaction: Reaction) => void;
 };
 
 type TestSocket = ClientSocket<ServerEvents, ClientEvents>;
@@ -312,6 +314,20 @@ test("Socket.IO final standings and rematches are authoritative and preserve the
       cycles: 2,
     });
     assert.ok(tieResultViews.every((view) => view.finalResult?.rounds === 8));
+
+    const finalReactions = sockets.map((socket) => new Promise<Reaction>((resolve) => {
+      socket.once("reaction:new", resolve);
+    }));
+    const finalReactionSent = await request(sockets[0]!, "reaction:send", {
+      session: sessions[0]!,
+      emoji: "🎨",
+    });
+    assert.equal(finalReactionSent.ok, true);
+    for (const reaction of await Promise.all(finalReactions)) {
+      assert.equal(reaction.playerId, sessions[0]!.playerId);
+      assert.equal(reaction.playerName, "Player 0");
+      assert.equal(reaction.emoji, "🎨");
+    }
 
     const nonHostRequest = await request(sockets[1]!, "match:rematch", {
       session: sessions[1]!,
