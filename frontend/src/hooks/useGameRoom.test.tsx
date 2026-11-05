@@ -1,6 +1,11 @@
 import { act, cleanup, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { playerViewSchema, type PlayerView, type Session } from "@drawoff/contracts";
+import {
+  playerViewSchema,
+  type PlayerView,
+  type Reaction,
+  type Session,
+} from "@drawoff/contracts";
 import { JudgeLiveView } from "@/components/game/JudgeLiveView";
 import { ServiceError, type GameService } from "@/services/gameService";
 import { ServiceProvider } from "@/services/ServiceProvider";
@@ -20,8 +25,37 @@ const savedSession = {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   window.sessionStorage.clear();
 });
+
+function makeResultView(): PlayerView {
+  return playerViewSchema.parse({
+    roomCode: "ABC123",
+    serverNow: 1_000,
+    me: { id: "player-1", name: "Alex", isHost: true, connected: true, isBot: false },
+    players: [{ id: "player-1", name: "Alex", isHost: true, connected: true, isBot: false }],
+    hostId: "player-1",
+    cycles: 1,
+    matchStarted: true,
+    phase: "ROUND_RESULT",
+    deadline: 13_000,
+    pause: null,
+    notice: null,
+    match: null,
+    role: "judge",
+    prompt: "owl",
+    suggestions: null,
+    drawingStatus: null,
+    myCanvas: null,
+    liveCanvases: null,
+    gallery: null,
+    judgingOvertime: false,
+    roundResult: null,
+    finalResult: null,
+    interruptedReason: null,
+  });
+}
 
 describe("useGameRoom saved-session recovery", () => {
   it("shows a recoverable rejoin message and clears stale credentials", async () => {
@@ -152,5 +186,52 @@ describe("useGameRoom saved-session recovery", () => {
     const artistTwoCard = screen.getByRole("button", { name: /Artist 2/ });
     expect(within(artistTwoCard).getByText("Done")).toBeInTheDocument();
     expect(within(artistTwoCard).queryByText("LIVE")).not.toBeInTheDocument();
+  });
+
+  it("delivers reactions for three seconds and sends allowlisted reactions through the service", async () => {
+    let publishReaction: ((reaction: Reaction) => void) | undefined;
+    const sendReaction = vi.fn(async () => {});
+    const service = {
+      capabilities: { demoPlayers: false, label: "Live room" },
+      resumeSession: vi.fn(async (session: Session) => session),
+      sendReaction,
+      subscribe: vi.fn(
+        (
+          _session: Session,
+          onView: (view: PlayerView) => void,
+          _onError: unknown,
+          onReaction: (reaction: Reaction) => void,
+        ) => {
+          publishReaction = onReaction;
+          onView(makeResultView());
+          return vi.fn();
+        },
+      ),
+    } as unknown as GameService;
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <ServiceProvider service={service}>{children}</ServiceProvider>
+    );
+    window.sessionStorage.setItem("drawoff:session:ABC123", JSON.stringify(savedSession));
+    const { result } = renderHook(() => useGameRoom("ABC123"), { wrapper });
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    vi.useFakeTimers();
+    act(() => publishReaction?.({
+      id: "reaction-1",
+      playerId: "player-2",
+      playerName: "Ben",
+      emoji: "🔥",
+      sentAt: 1_000,
+    }));
+    expect(result.current.reactions).toHaveLength(1);
+    act(() => vi.advanceTimersByTime(2_999));
+    expect(result.current.reactions).toHaveLength(1);
+    act(() => vi.advanceTimersByTime(1));
+    expect(result.current.reactions).toEqual([]);
+
+    await act(async () => {
+      await result.current.sendReaction("👏");
+    });
+    expect(sendReaction).toHaveBeenCalledWith(savedSession, "👏");
   });
 });

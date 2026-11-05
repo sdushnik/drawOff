@@ -85,6 +85,7 @@ test("resource defaults are configurable, positive, and do not define a player c
       drawingPerRoom: undefined,
       submissionsPerSession: undefined,
       submissionsPerRoom: undefined,
+      reactionsPerSession: undefined,
       roomCreatesPerConnection: undefined,
       roomCodeGuessesPerConnection: undefined,
       roomCodeGuessesPerCode: undefined,

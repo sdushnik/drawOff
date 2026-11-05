@@ -103,6 +103,7 @@ Fixed-window request defaults are conservative provisional deployment guards:
 | drawing events per room | 10,000 / 10 seconds |
 | drawing/rating submissions per session | 20 / minute |
 | drawing/rating submissions per room | 2,000 / minute |
+| emoji reactions per session | 6 / 3 seconds |
 | room creation per connection | 5 / minute |
 | room-code guesses per connection | 30 / minute |
 | room-code guesses per attempted code | 200 / minute |
@@ -118,7 +119,8 @@ All thresholds are configurable with positive-integer environment variables:
 `DRAWING_SESSION_RATE_WINDOW_MS`, `DRAWING_ROOM_RATE_MAX`,
 `DRAWING_ROOM_RATE_WINDOW_MS`, `SUBMISSION_SESSION_RATE_MAX`,
 `SUBMISSION_SESSION_RATE_WINDOW_MS`, `SUBMISSION_ROOM_RATE_MAX`,
-`SUBMISSION_ROOM_RATE_WINDOW_MS`, `ROOM_CREATE_RATE_MAX`,
+`SUBMISSION_ROOM_RATE_WINDOW_MS`, `REACTION_SESSION_RATE_MAX`,
+`REACTION_SESSION_RATE_WINDOW_MS`, `ROOM_CREATE_RATE_MAX`,
 `ROOM_CREATE_RATE_WINDOW_MS`, `ROOM_CODE_GUESS_CONNECTION_RATE_MAX`,
 `ROOM_CODE_GUESS_CONNECTION_RATE_WINDOW_MS`,
 `ROOM_CODE_GUESS_CODE_RATE_MAX`, and `ROOM_CODE_GUESS_CODE_RATE_WINDOW_MS`.

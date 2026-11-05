@@ -6,6 +6,7 @@ import { useCountdown } from "@/hooks/useGameRoom";
 import { ArtistBoard } from "./ArtistBoard";
 import { JudgeLiveView } from "./JudgeLiveView";
 import { JudgingGallery } from "./JudgingGallery";
+import { ReactionBar } from "./ReactionBar";
 import { Lobby } from "./Lobby";
 import {
   FinalResults,
@@ -111,6 +112,9 @@ export function RoomScreen({ room }: { room: GameRoom }) {
 
         {view.phase === "ROUND_RESULT" && view.roundResult && <RoundResults view={view} clockOffset={room.clockOffset} />}
         {view.phase === "FINAL_RESULT" && view.finalResult && <FinalResults view={view} room={room} />}
+        {(view.phase === "ROUND_RESULT" || view.phase === "FINAL_RESULT") && (
+          <ReactionBar reactions={room.reactions} onReact={room.sendReaction} />
+        )}
         {view.phase === "MATCH_INTERRUPTED" && <Interrupted view={view} room={room} />}
       </main>
 

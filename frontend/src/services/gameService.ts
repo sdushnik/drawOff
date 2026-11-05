@@ -6,7 +6,14 @@
  *  - mock/mockGameService.ts — in-browser authoritative engine + demo players (default)
  *  - a real implementation (e.g. Socket.IO client) can be dropped in via services/index.ts
  */
-import type { Cycles, DrawOp, PlayerView, Session } from "@drawoff/contracts";
+import type {
+  Cycles,
+  DrawOp,
+  PlayerView,
+  Reaction,
+  ReactionEmoji,
+  Session,
+} from "@drawoff/contracts";
 
 export type { ServiceErrorCode } from "@drawoff/contracts";
 import type { ServiceErrorCode } from "@drawoff/contracts";
@@ -46,6 +53,7 @@ export interface GameService {
   sendDrawOps(session: Session, ops: DrawOp[]): Promise<void>;
   submitCanvas(session: Session): Promise<void>;
   submitRatings(session: Session, ratings: Record<string, number>): Promise<void>;
+  sendReaction(session: Session, emoji: ReactionEmoji): Promise<void>;
 
   rematch(session: Session): Promise<void>;
   returnToLobby(session: Session): Promise<void>;
@@ -55,5 +63,6 @@ export interface GameService {
     session: Session,
     onView: (view: PlayerView) => void,
     onError?: (error: ServiceError) => void,
+    onReaction?: (reaction: Reaction) => void,
   ): Unsubscribe;
 }

@@ -4,7 +4,12 @@
  * sessionStorage so a page refresh reconnects to the same game.
  */
 import { GameEngine, GameError, type RoomRecord } from "@/game/engine";
-import type { PlayerView, Session } from "@drawoff/contracts";
+import {
+  reactionEmojiSchema,
+  type PlayerView,
+  type Reaction,
+  type Session,
+} from "@drawoff/contracts";
 import { ServiceError, type GameService } from "../gameService";
 import { BOT_NAMES, BotDirector } from "./bots";
 
@@ -37,6 +42,9 @@ export function createMockGameService(options: MockGameServiceOptions = {}): Moc
   const pushInterval = options.pushIntervalMs ?? 60;
   const bots = new BotDirector(engine, engine.random);
   const liveSessions = new Set<string>();
+  const reactionListeners = new Map<string, Set<(reaction: Reaction) => void>>();
+  const reactionWindows = new Map<string, { count: number; resetAt: number }>();
+  let reactionSequence = 0;
 
   if (storage) {
     try {
@@ -124,12 +132,61 @@ export function createMockGameService(options: MockGameServiceOptions = {}): Moc
       }),
     submitCanvas: (s) => call(() => engine.submitCanvas(s.roomCode, s.token)),
     submitRatings: (s, ratings) => call(() => engine.submitRatings(s.roomCode, s.token, ratings)),
+    sendReaction: async (s, emoji) => {
+      await wait();
+      const parsed = reactionEmojiSchema.safeParse(emoji);
+      if (!parsed.success) throw new ServiceError("INVALID_INPUT", "The reaction is invalid.");
+      let view: PlayerView;
+      try {
+        view = engine.getView(s.roomCode, s.token);
+      } catch (error) {
+        throw toServiceError(error);
+      }
+      if (view.phase !== "ROUND_RESULT" && view.phase !== "FINAL_RESULT") {
+        throw new ServiceError(
+          "WRONG_PHASE",
+          "Reactions are available only while results are shown.",
+        );
+      }
+      const now = Date.now();
+      const key = `${s.roomCode}|${view.me.id}`;
+      const current = reactionWindows.get(key);
+      const window = !current || now >= current.resetAt
+        ? { count: 0, resetAt: now + 3_000 }
+        : current;
+      if (window.count >= 6) {
+        throw new ServiceError(
+          "REQUEST_FAILED",
+          `Rate limit exceeded for reactions from this session; retry in ${Math.max(1, window.resetAt - now)} ms.`,
+        );
+      }
+      window.count += 1;
+      reactionWindows.set(key, window);
+      const reaction: Reaction = {
+        id: `mock-reaction-${++reactionSequence}`,
+        playerId: view.me.id,
+        playerName: view.me.name,
+        emoji: parsed.data,
+        sentAt: now,
+      };
+      for (const listener of reactionListeners.get(s.roomCode) ?? []) listener(reaction);
+    },
     rematch: (s) => call(() => engine.rematch(s.roomCode, s.token)),
     returnToLobby: (s) => call(() => engine.returnToLobby(s.roomCode, s.token)),
 
-    subscribe(session: Session, onView: (v: PlayerView) => void, onError?: (e: ServiceError) => void) {
+    subscribe(
+      session: Session,
+      onView: (v: PlayerView) => void,
+      onError?: (e: ServiceError) => void,
+      onReaction?: (reaction: Reaction) => void,
+    ) {
       const key = `${session.roomCode}|${session.token}`;
       liveSessions.add(key);
+      if (onReaction) {
+        const listeners = reactionListeners.get(session.roomCode) ?? new Set();
+        listeners.add(onReaction);
+        reactionListeners.set(session.roomCode, listeners);
+      }
       let timer: ReturnType<typeof setTimeout> | null = null;
       let last = 0;
       let closed = false;
@@ -158,6 +215,11 @@ export function createMockGameService(options: MockGameServiceOptions = {}): Moc
       return () => {
         closed = true;
         liveSessions.delete(key);
+        if (onReaction) {
+          const listeners = reactionListeners.get(session.roomCode);
+          listeners?.delete(onReaction);
+          if (listeners?.size === 0) reactionListeners.delete(session.roomCode);
+        }
         if (timer) clearTimeout(timer);
         unsub();
       };

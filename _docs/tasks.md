@@ -115,3 +115,7 @@ Description: Add Kysely's PostgreSQL dialect and driver, PostgreSQL-compatible m
 ## 29. Deploying durable persistence and coordinating multi-instance runtime state
 Goal: Provision, back up, monitor, and safely operate durable storage with more than one backend process.
 Description: Define production database provisioning, backup/restore, rollout, distributed timer ownership, locks, shared rate limiting, and Socket.IO horizontal coordination. This is not part of issue 27.
+
+## 30. Adding ephemeral emoji reactions
+Goal: Let room participants celebrate together on shared result screens without affecting the game outcome.
+Description: Add a fixed allowlist of accessible emoji controls during round and final results. Validate membership, phase, emoji, and per-session rate limits on the server; derive sender identity from the authenticated session; and broadcast reactions only to the sender's room. Keep reactions transient for about three seconds with no persistence or reconnect replay, support the browser mock service, and test contract validation, room isolation, authenticated broadcast, expiry, and spam handling.

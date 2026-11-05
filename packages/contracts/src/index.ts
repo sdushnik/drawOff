@@ -33,6 +33,9 @@ export type Cycles = z.infer<typeof cyclesSchema>;
 export const ratingSchema = z.number().int().min(0).max(100);
 export type Rating = z.infer<typeof ratingSchema>;
 
+export const reactionEmojiSchema = z.enum(["👏", "😂", "🔥", "❤️", "😮", "🎨"]);
+export type ReactionEmoji = z.infer<typeof reactionEmojiSchema>;
+
 export const drawToolSchema = z.enum(["pen", "eraser", "fill"]);
 export type DrawTool = z.infer<typeof drawToolSchema>;
 
@@ -176,6 +179,17 @@ export const finalResultSchema = z
   })
   .strict();
 export type FinalResult = z.infer<typeof finalResultSchema>;
+
+export const reactionSchema = z
+  .object({
+    id: nonEmptyStringSchema,
+    playerId: nonEmptyStringSchema,
+    playerName: playerNameSchema,
+    emoji: reactionEmojiSchema,
+    sentAt: finiteNumberSchema,
+  })
+  .strict();
+export type Reaction = z.infer<typeof reactionSchema>;
 
 export const playerViewSchema = z
   .object({
@@ -357,6 +371,9 @@ const ratingsPayload = z
     ratings: z.record(z.string(), ratingSchema),
   })
   .strict();
+const reactionPayload = z
+  .object({ session: sessionSchema, emoji: reactionEmojiSchema })
+  .strict();
 const emptyResponseSchema = z.object({}).strict();
 const sessionResponseSchema = z
   .object({ session: sessionSchema })
@@ -374,6 +391,7 @@ export const clientToServerPayloadSchemas = {
   "drawing:ops": drawOpsPayload,
   "drawing:submit": sessionPayload,
   "ratings:submit": ratingsPayload,
+  "reaction:send": reactionPayload,
   "match:rematch": sessionPayload,
   "room:return-to-lobby": sessionPayload,
   "state:subscribe": sessionPayload,
@@ -396,6 +414,7 @@ export const clientToServerResponseSchemas = {
   "drawing:ops": emptyResponseSchema,
   "drawing:submit": emptyResponseSchema,
   "ratings:submit": emptyResponseSchema,
+  "reaction:send": emptyResponseSchema,
   "match:rematch": emptyResponseSchema,
   "room:return-to-lobby": emptyResponseSchema,
   "state:subscribe": emptyResponseSchema,
@@ -408,6 +427,7 @@ export type ClientToServerResponses = {
 
 export const serverToClientPayloadSchemas = {
   "state:update": playerViewSchema,
+  "reaction:new": reactionSchema,
   error: serviceErrorPayloadSchema,
 } as const;
 export type ServerToClientPayloads = {

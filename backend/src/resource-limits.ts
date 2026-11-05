@@ -13,6 +13,7 @@ export interface ResourceLimits {
   readonly drawingPerRoom: RateLimitRule;
   readonly submissionsPerSession: RateLimitRule;
   readonly submissionsPerRoom: RateLimitRule;
+  readonly reactionsPerSession: RateLimitRule;
   readonly roomCreatesPerConnection: RateLimitRule;
   readonly roomCodeGuessesPerConnection: RateLimitRule;
   readonly roomCodeGuessesPerCode: RateLimitRule;
@@ -32,6 +33,7 @@ export const DEFAULT_RESOURCE_LIMITS: ResourceLimits = {
   drawingPerRoom: { max: 10_000, windowMs: 10_000 },
   submissionsPerSession: { max: 20, windowMs: 60_000 },
   submissionsPerRoom: { max: 2_000, windowMs: 60_000 },
+  reactionsPerSession: { max: 6, windowMs: 3_000 },
   roomCreatesPerConnection: { max: 5, windowMs: 60_000 },
   roomCodeGuessesPerConnection: { max: 30, windowMs: 60_000 },
   roomCodeGuessesPerCode: { max: 200, windowMs: 60_000 },
@@ -92,6 +94,11 @@ export function resolveResourceLimits(options: ResourceLimitOptions = {}): Resou
       DEFAULT_RESOURCE_LIMITS.submissionsPerRoom,
       options.submissionsPerRoom,
     ),
+    reactionsPerSession: rateRule(
+      "reactionsPerSession",
+      DEFAULT_RESOURCE_LIMITS.reactionsPerSession,
+      options.reactionsPerSession,
+    ),
     roomCreatesPerConnection: rateRule(
       "roomCreatesPerConnection",
       DEFAULT_RESOURCE_LIMITS.roomCreatesPerConnection,
@@ -139,6 +146,7 @@ export function resourceLimitOptionsFromEnvironment(
       "SUBMISSION_SESSION_RATE_WINDOW_MS",
     ),
     submissionsPerRoom: rate("SUBMISSION_ROOM_RATE_MAX", "SUBMISSION_ROOM_RATE_WINDOW_MS"),
+    reactionsPerSession: rate("REACTION_SESSION_RATE_MAX", "REACTION_SESSION_RATE_WINDOW_MS"),
     roomCreatesPerConnection: rate(
       "ROOM_CREATE_RATE_MAX",
       "ROOM_CREATE_RATE_WINDOW_MS",

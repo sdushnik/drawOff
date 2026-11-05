@@ -1,10 +1,12 @@
 import { io, type Socket } from "socket.io-client";
 import {
   playerViewSchema,
+  reactionSchema,
   serviceErrorPayloadSchema,
   type Cycles,
   type DrawOp,
   type PlayerView,
+  type Reaction,
   type Session,
 } from "@drawoff/contracts";
 import { ServiceError, type GameService, type Unsubscribe } from "./gameService";
@@ -20,6 +22,7 @@ export function createSocketGameService(serverUrl: string): GameService {
   let activeOnError: ((error: ServiceError) => void) | undefined;
   let hasConnected = false;
   const viewListeners = new Set<(view: PlayerView) => void>();
+  const reactionListeners = new Set<(reaction: Reaction) => void>();
 
   const toServiceError = (error: unknown) => {
     const parsed = serviceErrorPayloadSchema.safeParse(error);
@@ -36,6 +39,14 @@ export function createSocketGameService(serverUrl: string): GameService {
     for (const listener of viewListeners) listener(parsed.data);
   };
   socket.on("state:update", onView);
+  socket.on("reaction:new", (payload: unknown) => {
+    const parsed = reactionSchema.safeParse(payload);
+    if (!parsed.success) {
+      activeOnError?.(new ServiceError("NETWORK", "The server sent an invalid reaction."));
+      return;
+    }
+    for (const listener of reactionListeners) listener(parsed.data);
+  });
   socket.on("connect", () => {
     if (hasConnected && activeSession) {
       void request("session:resume", { session: activeSession }).catch((error: unknown) =>
@@ -128,6 +139,9 @@ export function createSocketGameService(serverUrl: string): GameService {
     submitRatings: async (session, ratings) => {
       await request("ratings:submit", { session, ratings });
     },
+    sendReaction: async (session, emoji) => {
+      await request("reaction:send", { session, emoji });
+    },
     rematch: async (session) => {
       await request("match:rematch", { session });
     },
@@ -136,15 +150,18 @@ export function createSocketGameService(serverUrl: string): GameService {
       session: Session,
       onUpdate: (view: PlayerView) => void,
       onError?: (error: ServiceError) => void,
+      onReaction?: (reaction: Reaction) => void,
     ): Unsubscribe {
       activeSession = session;
       activeOnError = onError;
       viewListeners.add(onUpdate);
+      if (onReaction) reactionListeners.add(onReaction);
       void request("state:subscribe", { session }).catch((error: unknown) =>
         onError?.(toServiceError(error)),
       );
       return () => {
         viewListeners.delete(onUpdate);
+        if (onReaction) reactionListeners.delete(onReaction);
         if (viewListeners.size === 0 && activeSession?.playerId === session.playerId) {
           activeSession = null;
           activeOnError = undefined;

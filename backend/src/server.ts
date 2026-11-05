@@ -3,6 +3,7 @@ import Fastify, {
   type FastifyReply,
   type FastifyServerOptions,
 } from "fastify";
+import { randomUUID } from "node:crypto";
 import cors from "@fastify/cors";
 import { Server as SocketIOServer, type Socket } from "socket.io";
 import type {
@@ -690,6 +691,40 @@ function registerRoomHandlers(
           enforceAttachedRateLimits(socket, "submissions");
           await persistMutation(() =>
             matchStateMachine.submitRatings(attachedSessions.get(socket.id)!, ratings));
+          return {};
+        },
+      );
+    });
+
+    socket.on("reaction:send", (payload, acknowledge) => {
+      handleSocketRequest(
+        socket,
+        payload,
+        clientToServerPayloadSchemas["reaction:send"],
+        clientToServerResponseSchemas["reaction:send"],
+        acknowledge,
+        async ({ session, emoji }) => {
+          assertAttached(socket, session);
+          const authenticated = attachedSessions.get(socket.id)!;
+          const view = matchStateMachine.getPlayerView(authenticated);
+          if (view.phase !== "ROUND_RESULT" && view.phase !== "FINAL_RESULT") {
+            throw new RoomServiceError(
+              "WRONG_PHASE",
+              "Reactions are available only while results are shown.",
+            );
+          }
+          rateLimiter.consume(
+            `reactions:session:${playerKey(authenticated)}`,
+            resourceLimits.reactionsPerSession,
+            "reactions from this session",
+          );
+          io.to(authenticated.roomCode).emit("reaction:new", {
+            id: randomUUID(),
+            playerId: authenticated.playerId,
+            playerName: view.me.name,
+            emoji,
+            sentAt: Date.now(),
+          });
           return {};
         },
       );

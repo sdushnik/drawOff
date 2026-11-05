@@ -222,6 +222,7 @@ Over one cycle each player is Judge **once** and Artist **N − 1 times**. Over 
 - After each round: reveal Artists and ratings card-by-card, then reveal the top drawing(s) and cumulative points within three seconds. Each revealed drawing has an on-demand, short timelapse reconstructed from its retained canvas actions; it does not autoplay.
 - At match end: reveal ranked totals sequentially, then display winner(s), number of rounds and cycles, and a **Play Again** option for the host.
 - Skip staged delays when the player prefers reduced motion. Reconnects derive round reveal progress from the server deadline instead of restarting the sequence.
+- During round and final results, authenticated participants may send a fixed set of ephemeral emoji reactions. Reactions show the sender's revealed display name for about three seconds, are room-scoped and rate-limited, and never affect or persist with scores.
 - Don't add extensive player statistics in v1.
 
 **Why:** Clear closure and easy replay keep the party experience flowing.
@@ -241,8 +242,8 @@ Over one cycle each player is Judge **once** and Artist **N − 1 times**. Over 
 | Drawing — Judge | 75-second timer with optional final-10-second sound; anonymous ready count; live anonymous canvases in Grid View; select any canvas for Focus View; return to Grid or focus another canvas at any time; no drawing or editing controls |
 | Judging — Judge | Prompt, anonymous drawing gallery, rating control per image, rated-count progress, Submit All |
 | Judging — Artists | Waiting for the Judge; no submitted ratings or identities leaked prematurely |
-| Round Results | Sequentially revealed drawings with artist names and 0–100 ratings, per-drawing timelapse playback, then round winner(s) and points/leaderboard |
-| Final Results | Sequential standings reveal, match winner(s), leaderboard, rematch/back to lobby |
+| Round Results | Sequentially revealed drawings with artist names and 0–100 ratings, per-drawing timelapse playback, then round winner(s), points/leaderboard, and ephemeral emoji reactions |
+| Final Results | Sequential standings reveal, match winner(s), leaderboard, ephemeral emoji reactions, rematch/back to lobby |
 | Recovery/Error | Reconnecting, waiting for required player, match interrupted, invalid code |
 
 **Responsive priorities:** Touch-friendly drawing on phones; Judge Grid View adapts to Artist count and viewport; Focus View remains legible and live; image cards work for many submissions; readable rating inputs; clear current phase and time; scroll and zoom without losing canvas content.
@@ -255,7 +256,7 @@ Over one cycle each player is Judge **once** and Artist **N − 1 times**. Over 
 
 Allow additional `PAUSED_FOR_RECONNECT` and `MATCH_INTERRUPTED` states, with explicit transitions.
 
-**Events:** room created/joined, player joined/left/reconnected, host reassigned, settings changed, game started, round roles assigned, prompt selected, drawing phase started, Artist drawing updates relayed to the Judge, canvas submitted/locked, drawing deadline reached, all canvases frozen, judge ratings submitted, results revealed, scores updated, cycle completed, match ended or interrupted.
+**Events:** room created/joined, player joined/left/reconnected, host reassigned, settings changed, game started, round roles assigned, prompt selected, drawing phase started, Artist drawing updates relayed to the Judge, canvas submitted/locked, drawing deadline reached, all canvases frozen, judge ratings submitted, results revealed, ephemeral result reaction sent, scores updated, cycle completed, match ended or interrupted.
 
 **Trusted backend requirements:**
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import type { DrawOp, PlayerView, Session } from "@drawoff/contracts";
+import type { DrawOp, PlayerView, Reaction, ReactionEmoji, Session } from "@drawoff/contracts";
 import { ServiceError, type GameService } from "@/services/gameService";
 import { useGameService } from "@/services/ServiceProvider";
 import { clearSession, loadSession, saveSession } from "@/lib/session";
@@ -17,6 +17,13 @@ export function useGameRoom(code: string) {
   const [view, setView] = useState<PlayerView | null>(null);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [clockOffset, setClockOffset] = useState(0);
+  const [reactions, setReactions] = useState<Reaction[]>([]);
+  const reactionTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
+  useEffect(() => () => {
+    for (const timer of reactionTimers.current.values()) clearTimeout(timer);
+    reactionTimers.current.clear();
+  }, []);
 
   // Restore a saved session (refresh / reconnect).
   useEffect(() => {
@@ -73,8 +80,29 @@ export function useGameRoom(code: string) {
           setStatus("join");
         }
       },
+      (reaction) => {
+        setReactions((current) =>
+          current.some(({ id }) => id === reaction.id) ? current : [...current, reaction],
+        );
+        const existing = reactionTimers.current.get(reaction.id);
+        if (existing) clearTimeout(existing);
+        reactionTimers.current.set(
+          reaction.id,
+          setTimeout(() => {
+            reactionTimers.current.delete(reaction.id);
+            setReactions((current) => current.filter(({ id }) => id !== reaction.id));
+          }, 3_000),
+        );
+      },
     );
   }, [session, code]);
+
+  useEffect(() => {
+    if (view?.phase === "ROUND_RESULT" || view?.phase === "FINAL_RESULT") return;
+    for (const timer of reactionTimers.current.values()) clearTimeout(timer);
+    reactionTimers.current.clear();
+    setReactions([]);
+  }, [view?.phase]);
 
   const join = useCallback(
     async (name: string) => {
@@ -113,6 +141,20 @@ export function useGameRoom(code: string) {
     [session],
   );
 
+  const sendReaction = useCallback(
+    async (emoji: ReactionEmoji) => {
+      if (!session) return false;
+      try {
+        await serviceRef.current().sendReaction(session, emoji);
+        return true;
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Couldn't send reaction.");
+        return false;
+      }
+    },
+    [session],
+  );
+
   const leave = useCallback(async () => {
     if (session) {
       try {
@@ -133,6 +175,8 @@ export function useGameRoom(code: string) {
     join,
     act,
     sendDrawOps,
+    sendReaction,
+    reactions,
     leave,
     capabilities: () => serviceRef.current().capabilities,
   };

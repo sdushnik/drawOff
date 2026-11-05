@@ -3,7 +3,7 @@ import { createMockGameService } from "./mockGameService";
 import { ServiceError } from "../gameService";
 import { GameEngine } from "@/game/engine";
 import { DRAWING_MS } from "@/game/constants";
-import type { PlayerView } from "@drawoff/contracts";
+import type { PlayerView, Reaction } from "@drawoff/contracts";
 
 afterEach(() => vi.useRealTimers());
 
@@ -68,5 +68,50 @@ describe("mock game service", () => {
     const host = await service.createRoom("Ann");
     const guest = await service.joinRoom(host.roomCode, "Ben");
     await expect(service.addDemoPlayer(guest)).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("delivers transient authenticated reactions only during result phases", async () => {
+    const { service, advance } = make();
+    const host = await service.createRoom("Ann");
+    const guest = await service.joinRoom(host.roomCode, "Ben");
+    await service.joinRoom(host.roomCode, "Cam");
+    await expect(service.sendReaction(guest, "🔥")).rejects.toMatchObject({ code: "WRONG_PHASE" });
+
+    await service.startMatch(host);
+    advance(4_000);
+    await service.selectPrompt(host, "lighthouse");
+    advance(75_000);
+    const judgeView = service.engine.getView(host.roomCode, host.token);
+    await service.submitRatings(
+      host,
+      Object.fromEntries(judgeView.gallery!.map(({ label }) => [label, 50])),
+    );
+
+    const hostReactions: Reaction[] = [];
+    const guestReactions: Reaction[] = [];
+    const stopHost = service.subscribe(host, () => {}, undefined, (reaction) => hostReactions.push(reaction));
+    let stopGuest = service.subscribe(guest, () => {}, undefined, (reaction) => guestReactions.push(reaction));
+    await service.sendReaction(guest, "🔥");
+    expect(hostReactions[0]).toMatchObject({
+      playerId: guest.playerId,
+      playerName: "Ben",
+      emoji: "🔥",
+    });
+    expect(guestReactions).toEqual(hostReactions);
+
+    stopGuest();
+    await service.sendReaction(host, "👏");
+    expect(guestReactions).toHaveLength(1);
+    stopGuest = service.subscribe(guest, () => {}, undefined, (reaction) => guestReactions.push(reaction));
+    expect(guestReactions).toHaveLength(1);
+    await service.sendReaction(host, "🎨");
+    expect(guestReactions.at(-1)?.emoji).toBe("🎨");
+
+    for (let index = 1; index < 6; index += 1) await service.sendReaction(guest, "😂");
+    await expect(service.sendReaction(guest, "😂")).rejects.toMatchObject({
+      code: "REQUEST_FAILED",
+    });
+    stopGuest();
+    stopHost();
   });
 });

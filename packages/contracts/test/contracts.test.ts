@@ -272,6 +272,7 @@ test("all declared client-to-server payloads and acknowledgements have strict sc
     "drawing:ops": { session, ops: [{ type: "clear", id: "op1" }] },
     "drawing:submit": { session },
     "ratings:submit": { session, ratings: { drawing1: 0, drawing2: 100 } },
+    "reaction:send": { session, emoji: "🔥" },
     "match:rematch": { session },
     "room:return-to-lobby": { session },
     "state:subscribe": { session },
@@ -317,6 +318,10 @@ test("all declared client-to-server payloads and acknowledgements have strict sc
       session,
       ratings: { drawing1: 100.1 },
     }).success,
+    false,
+  );
+  assert.equal(
+    clientToServerPayloadSchemas["reaction:send"].safeParse({ session, emoji: "💩" }).success,
     false,
   );
   assert.equal(
@@ -391,6 +396,26 @@ test("server-to-client payloads reject malformed data and unknown keys", () => {
   assert.equal(serverToClientPayloadSchemas["state:update"].safeParse(view).success, true);
   assert.equal(
     serverToClientPayloadSchemas["state:update"].safeParse({ ...view, extra: true }).success,
+    false,
+  );
+  assert.equal(
+    serverToClientPayloadSchemas["reaction:new"].safeParse({
+      id: "reaction-1",
+      playerId: "p1",
+      playerName: "Player One",
+      emoji: "👏",
+      sentAt: 1_000,
+    }).success,
+    true,
+  );
+  assert.equal(
+    serverToClientPayloadSchemas["reaction:new"].safeParse({
+      id: "reaction-1",
+      playerId: "p1",
+      playerName: "Player One",
+      emoji: "💩",
+      sentAt: 1_000,
+    }).success,
     false,
   );
   assert.equal(

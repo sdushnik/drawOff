@@ -4,6 +4,7 @@ import type {
   ClientToServerPayloads,
   ClientToServerResponses,
   PlayerView,
+  Reaction,
   ServiceErrorPayload,
 } from "@drawoff/contracts";
 import { io as createSocketClient, type Socket as ClientSocket } from "socket.io-client";
@@ -20,6 +21,7 @@ type ClientEvents = {
 type ServerEvents = {
   error: (payload: ServiceErrorPayload) => void;
   "state:update": (view: PlayerView) => void;
+  "reaction:new": (reaction: Reaction) => void;
 };
 
 type TestSocket = ClientSocket<ServerEvents, ClientEvents>;
@@ -229,6 +231,19 @@ test("Socket.IO ratings finalize atomically, reveal results to everyone, and ret
     if (!unauthorized.ok) assert.equal(unauthorized.error.code, "FORBIDDEN");
     assert.equal(latestViews.get(sockets[0]!)?.phase, "JUDGING");
 
+    const reactionDuringJudging = await request(sockets[1]!, "reaction:send", {
+      session: sessions[1]!,
+      emoji: "🔥",
+    });
+    assert.equal(reactionDuringJudging.ok, false);
+    if (!reactionDuringJudging.ok) assert.equal(reactionDuringJudging.error.code, "WRONG_PHASE");
+    const invalidReaction = await request(sockets[1]!, "reaction:send", {
+      session: sessions[1]!,
+      emoji: "💩",
+    } as ClientToServerPayloads["reaction:send"]);
+    assert.equal(invalidReaction.ok, false);
+    if (!invalidReaction.ok) assert.equal(invalidReaction.error.code, "INVALID_INPUT");
+
     const submittedRatings = { "Drawing 1": 0, "Drawing 2": 100, "Drawing 3": 100 };
     const resultViews = sockets.map((socket) => waitForView(socket, (view) => view.phase === "ROUND_RESULT"));
     const submitted = await request(sockets[0]!, "ratings:submit", {
@@ -256,6 +271,45 @@ test("Socket.IO ratings finalize atomically, reveal results to everyone, and ret
       firstResult.entries.map(({ artistId, rating }) => firstTotals[artistId] === rating),
       [true, true, true],
     );
+
+    const outsider = await connect(address);
+    const outsiderRoom = await request(outsider, "room:create", { name: "Outside Player" });
+    assert.equal(outsiderRoom.ok, true);
+    let outsiderReactions = 0;
+    outsider.on("reaction:new", () => { outsiderReactions += 1; });
+    const received = sockets.map((socket) => new Promise<Reaction>((resolve) => {
+      socket.once("reaction:new", resolve);
+    }));
+    const sentReaction = await request(sockets[1]!, "reaction:send", {
+      session: sessions[1]!,
+      emoji: "🔥",
+    });
+    assert.equal(sentReaction.ok, true);
+    const reactions = await Promise.all(received);
+    for (const reaction of reactions) {
+      assert.equal(reaction.playerId, sessions[1]!.playerId);
+      assert.equal(reaction.playerName, "Artist 1");
+      assert.equal(reaction.emoji, "🔥");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(outsiderReactions, 0);
+
+    for (let index = 0; index < 5; index += 1) {
+      assert.equal((await request(sockets[1]!, "reaction:send", {
+        session: sessions[1]!,
+        emoji: "👏",
+      })).ok, true);
+    }
+    const rateLimited = await request(sockets[1]!, "reaction:send", {
+      session: sessions[1]!,
+      emoji: "😂",
+    });
+    assert.equal(rateLimited.ok, false);
+    if (!rateLimited.ok) {
+      assert.equal(rateLimited.error.code, "REQUEST_FAILED");
+      assert.match(rateLimited.error.message, /Rate limit exceeded/);
+    }
+    outsider.disconnect();
 
     assert.equal(
       (
@@ -315,6 +369,21 @@ test("Socket.IO ratings finalize atomically, reveal results to everyone, and ret
     assert.equal(cumulativeScores[firstResult.entries[1]!.artistId], 120);
     assert.equal(cumulativeScores[firstResult.entries[2]!.artistId], 130);
     assert.ok(cumulativeViews.every((view) => view.roundResult?.entries.length === 3));
+
+    sockets[0]!.disconnect();
+    const reconnected = await connect(address);
+    let replayedReactions = 0;
+    reconnected.on("reaction:new", () => { replayedReactions += 1; });
+    assert.equal((await request(reconnected, "session:resume", { session: judge })).ok, true);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(replayedReactions, 0, "historical reactions were not replayed");
+    const nextReaction = new Promise<Reaction>((resolve) => reconnected.once("reaction:new", resolve));
+    assert.equal((await request(sockets[2]!, "reaction:send", {
+      session: sessions[2]!,
+      emoji: "😮",
+    })).ok, true);
+    assert.equal((await nextReaction).emoji, "😮");
+    reconnected.disconnect();
   } finally {
     sockets.forEach((socket) => socket.disconnect());
     await new Promise<void>((resolve) => io.close(() => resolve()));
