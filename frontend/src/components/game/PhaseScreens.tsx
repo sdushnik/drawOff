@@ -1,13 +1,14 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Crown, Gavel, Hourglass, Palette, PartyPopper, RotateCcw, Trophy, WifiOff, AlertOctagon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { PROMPT_MAX } from "@/game/constants";
+import { PROMPT_MAX, ROUND_RESULT_MS } from "@/game/constants";
 import { validatePrompt } from "@/game/rules";
 import type { PlayerView } from "@drawoff/contracts";
 import type { GameRoom } from "@/hooks/useGameRoom";
 import { useCountdown } from "@/hooks/useGameRoom";
 import { cn } from "@/lib/utils";
+import { useResultReveal } from "@/hooks/useResultReveal";
 import { DrawingCanvas } from "./DrawingCanvas";
 import { TimelapseCanvas } from "./TimelapseCanvas";
 import { nameOf } from "./util";
@@ -153,6 +154,10 @@ export function RoundResults({ view, clockOffset }: { view: PlayerView; clockOff
   const left = useCountdown(view.deadline, clockOffset);
   const entries = [...r.entries].sort((a, b) => b.rating - a.rating);
   const isLast = m.roundIndex + 1 >= m.totalRounds;
+  const fallbackStartedAt = useRef(Date.now() + clockOffset).current;
+  const phaseStartedAt = view.deadline === null ? fallbackStartedAt : view.deadline - ROUND_RESULT_MS;
+  const reveal = useResultReveal(entries.length, phaseStartedAt, clockOffset);
+  const visibleEntries = entries.slice(0, reveal.revealedCount);
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
       <div className="text-center">
@@ -160,17 +165,21 @@ export function RoundResults({ view, clockOffset }: { view: PlayerView; clockOff
           Round {m.roundIndex + 1} of {m.totalRounds} · judged by {nameOf(view, r.judgeId)}
         </p>
         <h2 className="text-4xl font-extrabold">“{r.prompt}”</h2>
-        <p className="mt-1 text-lg">
-          <PartyPopper className="mr-1 inline size-5" />
-          Top drawing: <strong>{r.winners.map((id) => nameOf(view, id)).join(" & ")}</strong>
-        </p>
+        {reveal.celebrationReady ? (
+          <p className="mt-1 animate-pop text-lg" role="status">
+            <PartyPopper className="mr-1 inline size-5" />
+            Top drawing: <strong>{r.winners.map((id) => nameOf(view, id)).join(" & ")}</strong>
+          </p>
+        ) : (
+          <p className="mt-1 text-lg text-muted-foreground" role="status">Revealing results…</p>
+        )}
       </div>
       <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {entries.map((e, i) => {
+          {visibleEntries.map((e) => {
             const winner = r.winners.includes(e.artistId);
             return (
-              <article key={e.label} className={cn("sticker animate-pop overflow-hidden", winner && "ring-4 ring-secondary")} style={{ animationDelay: `${i * 90}ms` }}>
+              <article key={e.label} className={cn("sticker animate-pop overflow-hidden", winner && "ring-4 ring-secondary")}>
                 <TimelapseCanvas canvas={e.canvas} ariaLabel={`${nameOf(view, e.artistId)}'s drawing`} />
                 <div className="flex items-center justify-between gap-2 border-t-[2.5px] border-ink px-3 py-2">
                   <span className="min-w-0 truncate font-semibold">
@@ -183,7 +192,7 @@ export function RoundResults({ view, clockOffset }: { view: PlayerView; clockOff
             );
           })}
         </div>
-        <Leaderboard view={view} />
+        {reveal.celebrationReady && <div className="animate-pop"><Leaderboard view={view} /></div>}
       </div>
       <p className="text-center text-sm text-muted-foreground">
         {isLast ? "Final results" : "Next round"} in {left ?? 0}s
@@ -215,19 +224,28 @@ export function Leaderboard({ view }: { view: PlayerView }) {
 export function FinalResults({ view, room }: { view: PlayerView; room: GameRoom }) {
   const f = view.finalResult!;
   const top = f.standings[0]?.score ?? 0;
+  const startedAt = useRef(Date.now()).current;
+  const reveal = useResultReveal(f.standings.length, startedAt);
+  const visibleStandings = f.standings.slice(0, reveal.revealedCount);
   return (
     <Center className="max-w-xl">
-      <Trophy className="size-16 animate-float" />
+      {reveal.celebrationReady && <Trophy className="size-16 animate-float" />}
       <p className="font-display font-bold">
         {f.rounds} rounds · {f.cycles} {f.cycles === 1 ? "cycle" : "cycles"}
       </p>
-      <h2 className="text-5xl font-extrabold">
-        {f.winners.length > 1 ? "Co-winners!" : `${nameOf(view, f.winners[0] ?? "")} wins!`}
-      </h2>
-      {f.winners.length > 1 && <p className="text-lg font-semibold">{f.winners.map((id) => nameOf(view, id)).join(" & ")}</p>}
+      {reveal.celebrationReady ? (
+        <div className="animate-pop">
+          <h2 className="text-5xl font-extrabold">
+            {f.winners.length > 1 ? "Co-winners!" : `${nameOf(view, f.winners[0] ?? "")} wins!`}
+          </h2>
+          {f.winners.length > 1 && <p className="text-lg font-semibold">{f.winners.map((id) => nameOf(view, id)).join(" & ")}</p>}
+        </div>
+      ) : (
+        <h2 className="text-4xl font-extrabold" aria-live="polite">Final scores…</h2>
+      )}
       <ol className="sticker w-full p-4 text-left">
-        {f.standings.map((s, i) => (
-          <li key={s.playerId} className={cn("flex items-center gap-3 border-b-2 border-dashed border-ink/20 py-2 last:border-0", s.score === top && "font-bold")}>
+        {visibleStandings.map((s, i) => (
+          <li key={s.playerId} className={cn("flex animate-pop items-center gap-3 border-b-2 border-dashed border-ink/20 py-2 last:border-0", s.score === top && "font-bold")}>
             <span className="w-6 font-display text-lg font-bold">{i + 1}</span>
             <span className="flex-1 truncate">
               {s.score === top && <Crown className="mr-1 inline size-4" />}
