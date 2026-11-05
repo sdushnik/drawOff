@@ -182,6 +182,10 @@ function registerRoomHandlers(
   let shuttingDown = false;
   let matchStateMachine: MatchStateMachine;
   let persistenceQueue = Promise.resolve();
+  let mutationQueue = Promise.resolve();
+  let mutationDepth = 0;
+  let suppressTransitionSideEffects = false;
+  const pendingTransitionRooms = new Set<string>();
   const persist = async () => {
     if (!repository) return;
     const snapshot = {
@@ -193,17 +197,32 @@ function registerRoomHandlers(
     await write;
   };
 
-  const persistMutation = async <T>(operation: () => T | Promise<T>): Promise<T> => {
+  const restoreSnapshots = (
+    rooms: ReturnType<RoomService["exportDurableState"]>,
+    matches: ReturnType<MatchStateMachine["exportDurableState"]>,
+  ) => {
+    suppressTransitionSideEffects = true;
+    try {
+      roomService.restoreDurableState(rooms);
+      matchStateMachine.restoreDurableState(matches);
+    } finally {
+      suppressTransitionSideEffects = false;
+    }
+  };
+
+  const executeMutation = async <T>(operation: () => T | Promise<T>): Promise<T> => {
     const roomsBefore = roomService.exportDurableState();
     const matchesBefore = matchStateMachine.exportDurableState();
+    pendingTransitionRooms.clear();
+    mutationDepth = 1;
+    let result: T;
     try {
-      const result = await operation();
-      await persist();
-      return result;
+      result = await operation();
     } catch (error) {
+      mutationDepth = 0;
+      pendingTransitionRooms.clear();
       if (error instanceof RoomPersistenceError) {
-        roomService.restoreDurableState(roomsBefore);
-        matchStateMachine.restoreDurableState(matchesBefore);
+        restoreSnapshots(roomsBefore, matchesBefore);
       } else {
         const roomsAfter = roomService.exportDurableState();
         const removedRoom = roomsBefore.some(
@@ -214,14 +233,32 @@ function registerRoomHandlers(
           try {
             await persist();
           } catch (persistenceError) {
-            roomService.restoreDurableState(roomsBefore);
-            matchStateMachine.restoreDurableState(matchesBefore);
+            restoreSnapshots(roomsBefore, matchesBefore);
             throw persistenceError;
           }
         }
       }
       throw error;
     }
+
+    mutationDepth = 0;
+    try {
+      await persist();
+    } catch (error) {
+      pendingTransitionRooms.clear();
+      restoreSnapshots(roomsBefore, matchesBefore);
+      throw error;
+    }
+    const transitionedRooms = [...pendingTransitionRooms];
+    pendingTransitionRooms.clear();
+    for (const roomCode of transitionedRooms) publishRoom(roomCode);
+    return result;
+  };
+
+  const persistMutation = <T>(operation: () => T | Promise<T>): Promise<T> => {
+    const execution = mutationQueue.then(() => executeMutation(operation));
+    mutationQueue = execution.then(() => undefined, () => undefined);
+    return execution;
   };
 
   const playerKey = (session: Session) => `${session.roomCode}:${session.playerId}`;
@@ -269,6 +306,11 @@ function registerRoomHandlers(
     ...machineOptions,
     maxCanvasActionsPerRoom: resourceLimits.maxCanvasActionsPerRoom,
     onTransition: (roomCode) => {
+      if (suppressTransitionSideEffects) return;
+      if (mutationDepth > 0) {
+        pendingTransitionRooms.add(roomCode);
+        return;
+      }
       if (!repository) {
         publishRoom(roomCode);
         return;
@@ -321,6 +363,7 @@ function registerRoomHandlers(
   const detach = async (
     socket: Socket<ClientSocketEvents, ServerSocketEvents>,
     markDisconnected: boolean,
+    persistDisconnect = true,
   ): Promise<void> => {
     const session = attachedSessions.get(socket.id);
     if (!session) return;
@@ -334,11 +377,17 @@ function registerRoomHandlers(
       playerSockets.delete(key);
       if (markDisconnected && !shuttingDown) {
         try {
-          await persistMutation(() => {
+          const disconnectPlayer = () => {
             roomService.setConnected(session, false);
             matchStateMachine.playerDisconnected(session);
-          });
-          publishRoom(session.roomCode);
+          };
+          if (persistDisconnect) {
+            await persistMutation(disconnectPlayer);
+            publishRoom(session.roomCode);
+          } else {
+            disconnectPlayer();
+            pendingTransitionRooms.add(session.roomCode);
+          }
         } catch {
           // The room or player may already have been removed.
         }
@@ -357,7 +406,7 @@ function registerRoomHandlers(
       (currentSession.roomCode !== session.roomCode ||
         currentSession.playerId !== session.playerId)
     ) {
-      await detach(socket, true);
+      await detach(socket, true, false);
     }
 
     const key = playerKey(session);
