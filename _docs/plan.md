@@ -8,7 +8,7 @@
 
 ## 1. Product vision
 
-DrawOff is a real-time drawing party game for groups of friends. Everyone joins a private room. In each round, **one player is the Judge and every other player is an Artist**. The Judge chooses a drawing prompt; all Artists draw the same prompt simultaneously, on private canvases, for 60 seconds. During that phase, the Judge watches every Artist's live drawing process while Artists see only their own canvases. At the deadline, drawings freeze; the Judge sees the completed drawings **anonymously**, sees the prompt, and independently rates every drawing from **0 to 100**. Ratings turn directly into points. Judge roles rotate, and the highest total score wins.
+DrawOff is a real-time drawing party game for groups of friends. Everyone joins a private room. In each round, **one player is the Judge and every other player is an Artist**. The Judge chooses a drawing prompt; all Artists draw the same prompt simultaneously, on private canvases, for up to 75 seconds. During that phase, the Judge watches every Artist's live drawing process while Artists see only their own canvases. When all Artists submit or the deadline arrives, drawings freeze; the Judge sees the completed drawings **anonymously**, sees the prompt, and independently rates every drawing from **0 to 100**. Ratings turn directly into points. Judge roles rotate, and the highest total score wins.
 
 The priority is a **fun, polished, feasible first full-stack project**, not a comprehensive social gaming service.
 
@@ -36,7 +36,7 @@ The priority is a **fun, polished, feasible first full-stack project**, not a co
 | Participants | One Judge, **all other players draw** | User-confirmed |
 | Spectators | **No spectator role** | User-confirmed |
 | Word choice | Judge chooses one of three suggestions or writes their own | User-confirmed |
-| Drawing duration | 60 seconds | User-confirmed |
+| Drawing duration | Up to 75 seconds; ends early when every Artist submits | User-confirmed |
 | Drawing privacy | Artists cannot see each other's drawings while drawing | User-confirmed |
 | Judge live viewing | Judge watches all Artists draw during the drawing phase | User-confirmed |
 | Judge viewing modes | Grid View and selectable Focus View | User-confirmed |
@@ -58,9 +58,9 @@ The priority is a **fun, polished, feasible first full-stack project**, not a co
 5. Once **3+ players** are connected, the host starts. The match roster is locked until the match ends.
 6. Round 1 assigns one Judge; **every other player is an Artist**.
 7. The Judge chooses from three random words or enters a custom word.
-8. All Artists receive the same prompt and draw **simultaneously for 60 seconds** on individual canvases. Each Artist sees and controls only their own canvas; the Judge watches all canvases update live without being able to draw or interact with them.
+8. All Artists receive the same prompt and draw **simultaneously for up to 75 seconds** on individual canvases. Each Artist sees and controls only their own canvas; the Judge watches all canvases update live without being able to draw or interact with them.
 9. During drawing, the Judge can use Grid View to see all anonymous canvases at once or Focus View to enlarge any canvas. Switching views does not interrupt drawing updates.
-10. Artists may submit early to lock their own canvas, but the drawing phase continues until the server-authoritative 60-second deadline. At the deadline, all canvases freeze.
+10. Artists may submit early to mark their canvas ready and may resume drawing by pressing the control again while another Artist is still drawing. When all Artists are ready, or at the server-authoritative 75-second deadline, all canvases freeze.
 11. The Judge sees **all completed anonymous drawings in a responsive gallery** with the original prompt and assigns **one 0–100 integer rating to each**.
 12. After every drawing is rated, the Judge submits all ratings once.
 13. The game reveals each Artist's identity and score, shows the round's highest-rated Artist(s), and updates the leaderboard.
@@ -133,7 +133,7 @@ Over one cycle each player is Judge **once** and Artist **N − 1 times**. Over 
 
 **Tools:** Pen, compact color palette, brush sizes, eraser, **Bucket Fill (flood fill)**, undo, and clear.
 
-- A **server-authoritative 60-second timer** controls when drawing starts and ends.
+- A **server-authoritative 75-second timer** controls the latest possible end of drawing.
 - Each Artist draws locally on a separate canvas.
 - Artists can see and interact only with their own canvas; other Artists' drawings are never sent to them.
 - Stream validated drawing events from each Artist to the server and then to the Judge in real time. Do not send live drawing events to other Artists.
@@ -141,8 +141,8 @@ Over one cycle each player is Judge **once** and Artist **N − 1 times**. Over 
 - Give each live drawing a stable anonymous label for the round; do not expose its Artist identity to the Judge.
 - The Judge can watch all live canvases in Grid View or select one for Focus View. Both views stay synchronized with the same server-held canvas state.
 - The Judge is a read-only viewer and cannot draw, edit a canvas, or use Artist drawing tools.
-- Artists may submit early to lock their own artwork; this does not end the phase for other Artists.
-- At the server-authoritative 60-second deadline, freeze every canvas, including blank work, and move to judging.
+- Artists may submit early to mark their artwork ready; while the phase remains active, pressing the control again resumes drawing.
+- Move to judging as soon as every Artist is ready. Otherwise, at the server-authoritative 75-second deadline, freeze every canvas, including blank work.
 - Retain the latest synchronized canvas state on the server and replay/resynchronize it when the Judge or an Artist reconnects.
 - Coalesce or batch high-frequency drawing updates, bound event payloads and rates, and use state checkpoints as needed to keep larger rooms responsive without making final drawing snapshots the only transmitted data.
 
@@ -234,8 +234,8 @@ Over one cycle each player is Judge **once** and Artist **N − 1 times**. Over 
 | Role Reveal | Round X/Y, current Judge, all Artist participants, user's role |
 | Word Selection — Judge | Three suggestions, custom input, countdown, confirm |
 | Word Waiting — Artists | Waiting for Judge to select a word |
-| Drawing — Artists | Prompt, 60-second timer, canvas and tools, Submit |
-| Drawing — Judge | 60-second timer; live anonymous canvases in Grid View; select any canvas for Focus View; return to Grid or focus another canvas at any time; no drawing or editing controls |
+| Drawing — Artists | Prompt, 75-second timer, canvas and tools, Submit/Continue control |
+| Drawing — Judge | 75-second timer; live anonymous canvases in Grid View; select any canvas for Focus View; return to Grid or focus another canvas at any time; no drawing or editing controls |
 | Judging — Judge | Prompt, anonymous drawing gallery, rating control per image, rated-count progress, Submit All |
 | Judging — Artists | Waiting for the Judge; no submitted ratings or identities leaked prematurely |
 | Round Results | Drawings with artist names, 0–100 ratings, round winner(s), points/leaderboard |
@@ -320,7 +320,7 @@ Keep the artist-to-anonymous-card mapping private on the server until ratings ar
 | More friends join | Allow subject to **measured server capacity**, not arbitrary six-player limit |
 | Invalid room code | Clear validation error |
 | Join during active match | Do not enter current match; return message directing to next lobby |
-| Artist submits before 60 seconds | Lock that Artist's canvas; keep the phase active and live Judge view running until the deadline |
+| Artist submits before 75 seconds | Mark that Artist ready; allow them to resume while the phase remains active; end drawing immediately when every Artist is ready |
 | Artist does not submit | Freeze the current synchronized canvas at the deadline, including blank work |
 | Blank canvas | Accept; Judge may award 0 |
 | Rating missing/invalid | Prevent final submission; identify unrated card |
@@ -345,7 +345,7 @@ Keep the artist-to-anonymous-card mapping private on the server until ratings ar
 - **Every non-Judge player draws each round**
 - Fair Judge rotation and host-selected **1–3 cycles**
 - Judge chooses three suggested prompts or custom word
-- 60-second synchronized canvases with private Artist views and live Judge spectating
+- Up-to-75-second synchronized canvases with private Artist views, reversible early submit, and live Judge spectating
 - Judge Grid View and selectable Focus View, both kept live and anonymous
 - Pen, palette, brush sizes, eraser, Bucket Fill (flood fill), undo, and clear, with early canvas locking, deadline freeze, and reconnect resynchronization
 - Anonymous **multi-drawing gallery** with 0–100 scores
@@ -377,10 +377,10 @@ Keep the artist-to-anonymous-card mapping private on the server until ratings ar
 4. The host selects 1, 2, or 3 cycles; total scheduled rounds equal `N × cycles`.
 5. For each cycle, every player Judges once and draws in all remaining `N − 1` rounds.
 6. Judge picks a suggested or custom word; all Artists receive the same word.
-7. Artists can draw concurrently for 60 seconds without viewing other Artists' work; the Judge receives their drawing updates live through the server.
+7. Artists can draw concurrently for up to 75 seconds without viewing other Artists' work; the Judge receives their drawing updates live through the server.
 8. Artists can use Bucket Fill (flood fill) with the selected palette color; the fill operation synchronizes as a bounded, ordered Socket.IO action and appears consistently on the Judge's live canvas.
 9. The Judge can see all live anonymous canvases in Grid View, focus any one canvas, and switch views without losing synchronization; the Judge cannot draw or edit.
-10. At 60 seconds, all canvases freeze; an Artist who submitted early remains locked while the rest of the phase continues.
+10. All canvases freeze at 75 seconds or immediately after every Artist submits; before that collective completion, an Artist may press the submit control again to resume drawing.
 11. Reconnecting authorized clients recover already synchronized canvas progress and the current phase.
 12. The Judge sees all completed drawings anonymously with the original prompt in a scalable gallery.
 13. Every drawing receives a validated whole-number score from 0 to 100.

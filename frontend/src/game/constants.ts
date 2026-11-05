@@ -11,7 +11,7 @@ export const CANVAS_BACKGROUND = "#ffffff";
 
 export const ROLE_REVEAL_MS = 4_000;
 export const WORD_SELECTION_MS = 30_000;
-export const DRAWING_MS = 60_000;
+export const DRAWING_MS = 75_000;
 export const ROUND_RESULT_MS = 12_000;
 export const JUDGE_GRACE_MS = 15_000;
 export const RECONNECT_WINDOW_MS = 30_000;

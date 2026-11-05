@@ -52,15 +52,17 @@ export function ArtistBoard({ initial, locked, timeUp, onSend, onSubmit }: Props
   const [size, setSize] = useState<number>(BRUSH_SIZES[1]);
   const [actionCount, setActionCount] = useState(initial.actions.length);
   const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
-  const disabled = locked || timeUp || submitted || submitting;
-  const blocked = useRef(disabled);
-  const externallyDisabled = useRef(locked || timeUp);
-  externallyDisabled.current = locked || timeUp;
+  const [ready, setReady] = useState(locked);
+  const editDisabled = ready || timeUp || submitting;
+  const blocked = useRef(editDisabled);
 
   useEffect(() => {
-    blocked.current = disabled;
-  }, [disabled]);
+    setReady(locked);
+  }, [locked]);
+
+  useEffect(() => {
+    blocked.current = editDisabled;
+  }, [editDisabled]);
 
   const paint = useCallback(() => {
     if (frame.current !== null) return;
@@ -156,35 +158,34 @@ export function ArtistBoard({ initial, locked, timeUp, onSend, onSubmit }: Props
   };
 
   useEffect(() => {
-    if (disabled) onUp();
-  }, [disabled]);
+    if (editDisabled) onUp();
+  }, [editDisabled]);
 
   const submit = async () => {
-    if (blocked.current) return;
-    blocked.current = true;
-    setSubmitted(true);
+    if (timeUp || submitting) return;
+    const wasReady = ready;
+    if (!wasReady) blocked.current = true;
+    setReady(!wasReady);
     setSubmitting(true);
     let accepted = true;
     try {
-      await flush();
+      if (!wasReady) await flush();
       const result = await onSubmit();
-      if (result === false) {
-        accepted = false;
-        setSubmitted(false);
-      }
+      if (result === false) accepted = false;
     } catch {
       accepted = false;
-      setSubmitted(false);
     } finally {
+      const nextReady = accepted ? !wasReady : wasReady;
+      setReady(nextReady);
       setSubmitting(false);
-      blocked.current = externallyDisabled.current || accepted;
+      blocked.current = timeUp || nextReady;
     }
   };
 
   return (
     <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
       <div className="relative min-w-0 flex-1">
-        <div className={cn("sticker overflow-hidden p-0", disabled && "opacity-95")}>
+        <div className={cn("sticker overflow-hidden p-0", editDisabled && "opacity-95")}>
           <canvas
             ref={canvasRef}
             width={CANVAS_WIDTH}
@@ -196,18 +197,18 @@ export function ArtistBoard({ initial, locked, timeUp, onSend, onSubmit }: Props
             onPointerCancel={onUp}
             className={cn(
               "canvas-surface block aspect-[4/3] h-auto w-full touch-none overscroll-contain",
-              disabled ? "cursor-not-allowed" : tool === "fill" ? "cursor-cell" : "cursor-crosshair",
+              editDisabled ? "cursor-not-allowed" : tool === "fill" ? "cursor-cell" : "cursor-crosshair",
             )}
           />
         </div>
-        {disabled && (
+        {editDisabled && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <span
               className="sticker animate-pop inline-flex items-center gap-2 bg-secondary px-4 py-2 font-display text-lg font-bold"
               role="status"
               aria-live="polite"
             >
-              <Lock className="size-5" /> {locked || submitted ? "Submitted!" : "Pencils down!"}
+              <Lock className="size-5" /> {ready ? "Submitted — you can continue drawing" : "Pencils down!"}
             </span>
           </div>
         )}
@@ -230,7 +231,7 @@ export function ArtistBoard({ initial, locked, timeUp, onSend, onSubmit }: Props
               aria-pressed={tool === t}
               aria-label={label}
               title={label}
-              disabled={disabled}
+              disabled={editDisabled}
               onClick={() => setTool(t)}
             >
               <Icon />
@@ -245,7 +246,7 @@ export function ArtistBoard({ initial, locked, timeUp, onSend, onSubmit }: Props
               type="button"
               aria-label={`Color ${c}`}
               aria-pressed={color === c}
-              disabled={disabled}
+              disabled={editDisabled}
               onClick={() => {
                 setColor(c);
                 if (tool === "eraser") setTool("pen");
@@ -268,7 +269,7 @@ export function ArtistBoard({ initial, locked, timeUp, onSend, onSubmit }: Props
               data-active={size === s}
               aria-pressed={size === s}
               aria-label={`Brush ${s}px`}
-              disabled={disabled}
+              disabled={editDisabled}
               onClick={() => setSize(s)}
             >
               <span className="rounded-full bg-current" style={{ width: Math.min(s, 24) / 1.2 + 2, height: Math.min(s, 24) / 1.2 + 2 }} />
@@ -277,16 +278,16 @@ export function ArtistBoard({ initial, locked, timeUp, onSend, onSubmit }: Props
         </div>
 
         <div className="flex gap-1.5">
-          <Button variant="outline" size="sm" disabled={disabled || actionCount === 0} onClick={() => emit({ type: "undo", id: newId() })}>
+          <Button variant="outline" size="sm" disabled={editDisabled || actionCount === 0} onClick={() => emit({ type: "undo", id: newId() })}>
             <Undo2 /> Undo
           </Button>
-          <Button variant="outline" size="sm" disabled={disabled || actionCount === 0} onClick={() => emit({ type: "clear", id: newId() })}>
+          <Button variant="outline" size="sm" disabled={editDisabled || actionCount === 0} onClick={() => emit({ type: "clear", id: newId() })}>
             <Trash2 /> Clear
           </Button>
         </div>
 
-        <Button variant="hero" className="w-full" disabled={disabled} onClick={submit}>
-          <Send /> {locked || submitted ? "Submitted" : "Submit early"}
+        <Button variant="hero" className="w-full" disabled={timeUp || submitting} onClick={submit}>
+          <Send /> {ready ? "Continue drawing" : "Submit early"}
         </Button>
       </aside>
     </div>

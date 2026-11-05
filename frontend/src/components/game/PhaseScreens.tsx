@@ -32,7 +32,7 @@ export function RoleReveal({ view }: { view: PlayerView }) {
         {judge ? <Gavel className="mx-auto size-14" /> : <Palette className="mx-auto size-14" />}
         <h2 className="mt-3 text-5xl font-extrabold">{judge ? "You're the Judge" : "You're an Artist"}</h2>
         <p className="mt-2 text-lg font-medium">
-          {judge ? "Pick the word, watch everyone draw, then rate every drawing." : "Draw the word in 60 seconds. Only the judge can see your work."}
+          {judge ? "Pick the word, watch everyone draw, then rate every drawing." : "Draw the word in 75 seconds. Only the judge can see your work."}
         </p>
       </div>
       <ul aria-label="Round roles" className="flex w-full flex-wrap justify-center gap-2 text-sm">

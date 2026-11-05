@@ -189,8 +189,8 @@ current phase and server deadline in each personalized view. Match start enters
 `ROLE_REVEAL` for 4 seconds; its server timer advances to `WORD_SELECTION` for
 30 seconds. A valid `prompt:select` request or the selection timeout advances
 the match to drawing. A single server timer starts with that phase and
-establishes its 60-second deadline; the server enters `JUDGING` at that
-boundary. The Judge's deadline is `max(45 seconds, 15 seconds × Artist count)`. Rating
+establishes its 75-second deadline; the server enters `JUDGING` at that
+boundary, or earlier when every Artist has submitted. The Judge's deadline is `max(45 seconds, 15 seconds × Artist count)`. Rating
 submissions are validated and scored by the state machine; a complete valid
 submission enters `ROUND_RESULT` for 12 seconds. The server timer then advances
 to the next `ROLE_REVEAL`, or to `FINAL_RESULT` after the last scheduled round.
@@ -262,14 +262,15 @@ rejected operations do not change either counter. A reconnect or
 `state:subscribe` returns the complete current snapshot, so a client can recover
 without replaying missed updates.
 
-An Artist may send `drawing:submit` once before the deadline to lock only their
-own canvas; other Artists can continue drawing. At the 60-second boundary, the
-server locks every remaining canvas—including untouched blank canvases—and
-transitions to `JUDGING` once. The server clock rejects drawing operations and
-submissions at or after the deadline, even if a scheduled timer callback is
-delayed. During judging, the Judge continues to receive every immutable canvas
-under its original anonymous label, while Artists receive only their own
-locked snapshot and cannot modify or resubmit it.
+An Artist may send `drawing:submit` before the deadline to mark their own canvas
+ready; other Artists can continue drawing. Sending it again while the phase is
+still active resumes that Artist's canvas. When every Artist is ready, or at the
+75-second boundary, the server locks every canvas—including untouched blank
+canvases—and transitions to `JUDGING` once. The server clock rejects drawing
+operations and submissions at or after the deadline, even if a scheduled timer
+callback is delayed. During judging, the Judge continues to receive every
+immutable canvas under its original anonymous label, while Artists receive only
+their own locked snapshot and cannot modify or resubmit it.
 
 ## Ratings and round results
 

@@ -2,6 +2,7 @@ import { describe, expect, it, vi, afterEach } from "vitest";
 import { createMockGameService } from "./mockGameService";
 import { ServiceError } from "../gameService";
 import { GameEngine } from "@/game/engine";
+import { DRAWING_MS } from "@/game/constants";
 import type { PlayerView } from "@drawoff/contracts";
 
 afterEach(() => vi.useRealTimers());
@@ -47,7 +48,7 @@ describe("mock game service", () => {
       if (view().role === "judge") await service.selectPrompt(host, view().suggestions![0]!);
       for (let i = 0; i < 30 && view().phase === "WORD_SELECTION"; i++) advance(500);
       expect(view().phase).toBe("DRAWING");
-      for (let i = 0; i < 400 && view().phase === "DRAWING"; i++) advance(150);
+      for (let i = 0; i <= Math.ceil(DRAWING_MS / 150) && view().phase === "DRAWING"; i++) advance(150);
       expect(view().phase).toBe("JUDGING");
       if (view().role === "judge") {
         const ratings = Object.fromEntries(view().gallery!.map((g) => [g.label, 77]));

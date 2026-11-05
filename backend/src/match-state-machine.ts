@@ -21,7 +21,7 @@ import {
 export const MATCH_PHASE_DURATIONS_MS = {
   ROLE_REVEAL: 4_000,
   WORD_SELECTION: 30_000,
-  DRAWING: 60_000,
+  DRAWING: 75_000,
   ROUND_RESULT: 12_000,
   JUDGE_MINIMUM: 45_000,
   JUDGE_PER_ARTIST: 15_000,
@@ -584,13 +584,13 @@ export class MatchStateMachine {
 
   submitCanvas(session: Session): void {
     const { player, progress } = this.requireArtistDrawing(session);
-    this.requireBeforeDeadline(progress);
+    const now = this.requireBeforeDeadline(progress);
     const drawing = progress.canvases.get(player.id)!;
-    if (drawing.locked) {
-      throw new RoomServiceError("FORBIDDEN", "Your drawing is already submitted.");
-    }
-    drawing.locked = true;
+    drawing.locked = !drawing.locked;
     drawing.sequence += 1;
+    if ([...progress.canvases.values()].every((canvas) => canvas.locked)) {
+      this.finishDrawing(session.roomCode, progress, now);
+    }
   }
 
   getPlayerView(session: Session): PlayerView {
@@ -885,26 +885,7 @@ export class MatchStateMachine {
         break;
       }
       case "DRAWING": {
-        const room = this.rooms.getRoom(roomCode);
-        for (const drawing of progress.canvases.values()) {
-          if (drawing.locked) continue;
-          drawing.locked = true;
-          drawing.sequence += 1;
-        }
-        const artistCount = room.matchSchedule?.order.length
-          ? room.matchSchedule.order.length - 1
-          : 0;
-        const judgingDuration = Math.max(
-          this.phaseDurations.JUDGE_MINIMUM,
-          this.phaseDurations.JUDGE_PER_ARTIST * artistCount,
-        );
-        this.transition(
-          roomCode,
-          progress,
-          "JUDGING",
-          judgingDuration,
-          progress.deadline,
-        );
+        this.finishDrawing(roomCode, progress, progress.deadline);
         break;
       }
       case "ROUND_RESULT": {
@@ -958,6 +939,27 @@ export class MatchStateMachine {
       this.scheduleTimer(roomCode, progress);
     }
     this.onTransition(roomCode);
+  }
+
+  private finishDrawing(
+    roomCode: string,
+    progress: MatchProgress,
+    startedAt: number,
+  ): void {
+    const room = this.rooms.getRoom(roomCode);
+    for (const drawing of progress.canvases.values()) {
+      if (drawing.locked) continue;
+      drawing.locked = true;
+      drawing.sequence += 1;
+    }
+    const artistCount = room.matchSchedule?.order.length
+      ? room.matchSchedule.order.length - 1
+      : 0;
+    const judgingDuration = Math.max(
+      this.phaseDurations.JUDGE_MINIMUM,
+      this.phaseDurations.JUDGE_PER_ARTIST * artistCount,
+    );
+    this.transition(roomCode, progress, "JUDGING", judgingDuration, startedAt);
   }
 
   private scheduleTimer(roomCode: string, progress: MatchProgress): void {

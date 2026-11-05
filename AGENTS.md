@@ -37,7 +37,7 @@ When adding the backend workspace, keep documented root-level install, developme
 - Only the Judge may receive live drawing updates. Never broadcast an Artist's drawing data to other Artists. The Judge is read-only and receives anonymous drawing identifiers; do not reveal Artist identities until ratings are finalized.
 - Keep Grid View and Focus View synchronized from the same server-held canvas state. Bound and validate drawing event sizes and rates, and preserve synchronized progress for reconnection.
 - Freeze the roster for a match. Maintain deterministic Judge rotation so each player Judges once per cycle and draws in every other round.
-- Preserve the confirmed product rules: private rooms, at least three players, no fixed six-player gameplay cap, no spectator role, one to three cycles, 60-second drawing rounds, and integer ratings from 0 through 100.
+- Preserve the confirmed product rules: private rooms, at least three players, no fixed six-player gameplay cap, no spectator role, one to three cycles, drawing rounds of up to 75 seconds that end when every Artist submits, and integer ratings from 0 through 100.
 - Add or update focused tests for behavior changes. Run the relevant tests and production build using the actual workspace scripts (currently `cd frontend && npm test` and `cd frontend && npm run build`); report commands that could not be run.
 - Do not commit secrets, credentials, or local environment files. Keep operational capacity limits based on measurement, not an arbitrary gameplay cap.
 

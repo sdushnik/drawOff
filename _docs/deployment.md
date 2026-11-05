@@ -78,7 +78,7 @@ live drawing, Artist privacy, and room cleanup:
 npm run smoke:production --workspace @drawoff/backend
 ```
 
-Run the full 60-second capacity matrix on the actual deployment class before
+Run the full 75-second capacity matrix on the actual deployment class before
 changing operational limits:
 
 ```sh
@@ -89,8 +89,12 @@ The matrix defaults to 3, 5, 8, 12, and 16 players and writes
 `_docs/capacity-results.json` plus `_docs/capacity-report.md`. Override ports or
 room sizes with `CAPACITY_BACKEND_PORT`, `CAPACITY_FRONTEND_PORT`, and
 `CAPACITY_ROOM_SIZES`. Changing `CAPACITY_DRAWING_DURATION_MS` is useful for
-debugging only; published evidence must use the authoritative 60-second
+debugging only; published evidence must use the authoritative 75-second
 default.
+
+The checked-in capacity report predates the 75-second rule and records the
+former 60-second workload. Rerun the matrix on the deployment host before
+treating that report as current evidence.
 
 On the measured Apple M1 host, 16-player representative traffic crossed the
 predeclared CPU threshold while 12-player traffic passed. The report therefore

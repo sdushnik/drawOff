@@ -31,7 +31,7 @@ const requestedSizes = (
 const drawingDurationMs = Number(
   cliValue("--duration-ms") ??
     process.env["CAPACITY_DRAWING_DURATION_MS"] ??
-    60_000,
+    75_000,
 );
 const eventIntervalMs = Number(
   process.env["CAPACITY_EVENT_INTERVAL_MS"] ?? 250,
@@ -364,7 +364,7 @@ async function runScenario({ browser, roomSize, durationMs }) {
     );
     const authoritativeWindowMs = drawing.deadline - Date.now();
     assert.ok(
-      authoritativeWindowMs > 59_000 && authoritativeWindowMs <= 60_000,
+      authoritativeWindowMs > 74_000 && authoritativeWindowMs <= 75_000,
     );
     await judge.page.getByLabel("Drawing 1, live").waitFor();
     const judgeGridCanvasCount = await judge.page
@@ -619,7 +619,7 @@ async function main() {
       `# DrawOff capacity measurement\n\n` +
       `Generated: ${evidence.generatedAt}<br>\nRevision: \`${gitRevision}\`\n\n` +
       `## Method and predeclared stop criteria\n\n` +
-      `The production frontend build and persistent backend build were exercised over real HTTP/WebSocket ports. One rendered Chromium Judge and independent Socket.IO Artist clients ran simultaneous drawing traffic for the authoritative 60-second phase. Room sizes were tested in order (${requestedSizes.join(", ")}) and testing stopped at the first failed threshold or the ${targetRoomSize}-player safety target. The pass thresholds were: at least ${(thresholds.minimumAcceptanceRatio * 100).toFixed(0)}% accepted events, Judge update p95 at most ${thresholds.maximumUpdateP95Ms} ms, Judge browser event-loop delay p95 at most ${thresholds.maximumJudgeEventLoopP95Ms} ms, backend peak CPU at most ${thresholds.maximumBackendCpuPercent}%, and RSS at most ${thresholds.maximumBackendRssMiB} MiB.\n\n` +
+      `The production frontend build and persistent backend build were exercised over real HTTP/WebSocket ports. One rendered Chromium Judge and independent Socket.IO Artist clients ran simultaneous drawing traffic for the authoritative 75-second phase. Room sizes were tested in order (${requestedSizes.join(", ")}) and testing stopped at the first failed threshold or the ${targetRoomSize}-player safety target. The pass thresholds were: at least ${(thresholds.minimumAcceptanceRatio * 100).toFixed(0)}% accepted events, Judge update p95 at most ${thresholds.maximumUpdateP95Ms} ms, Judge browser event-loop delay p95 at most ${thresholds.maximumJudgeEventLoopP95Ms} ms, backend peak CPU at most ${thresholds.maximumBackendCpuPercent}%, and RSS at most ${thresholds.maximumBackendRssMiB} MiB.\n\n` +
       `Bytes/sec is the serialized Socket.IO application payload observed by the clients; TLS/IP framing is excluded. CPU/RSS are sampled from the backend process only. Every case also verifies active-match late-join rejection, Artist privacy, Judge live updates, and explicit room cleanup.\n\n` +
       `## Test environment\n\n` +
       `- Node: ${process.version}\n- Platform: ${process.platform} ${process.arch}\n- CPU: ${evidence.runtime.cpuModel} (${evidence.runtime.logicalCpuCount} logical CPUs)\n- Memory: ${evidence.runtime.totalMemoryMiB} MiB\n- Event cadence: one operation per Artist every ${eventIntervalMs} ms\n- Resource limits: backend defaults documented in \`backend/README.md\`\n\n` +

@@ -18,7 +18,7 @@ export const Route = createFileRoute("/")({
         content: "A real-time drawing party game. Start a private room, share the code, and let the judge rate every drawing 0–100.",
       },
       { property: "og:title", content: "DrawOff — one judge, everyone draws" },
-      { property: "og:description", content: "Private rooms, 60-second drawings, a live-watching judge, and 0–100 scores." },
+      { property: "og:description", content: "Private rooms, 75-second drawings, a live-watching judge, and 0–100 scores." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -66,7 +66,7 @@ export function Home() {
             Draw<span className="text-primary">Off</span>
           </h1>
           <p className="mt-4 max-w-md break-words text-xl font-medium">
-            One judge picks the word. Everyone else draws it in 60 seconds. The judge watches live — then scores every
+            One judge picks the word. Everyone else draws it in 75 seconds. The judge watches live — then scores every
             drawing from 0 to 100.
           </p>
 
@@ -102,7 +102,7 @@ export function Home() {
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
             {[
               { icon: Gavel, title: "1 judge", text: "Picks the word & rates" },
-              { icon: Palette, title: "Everyone draws", text: "Private canvases, 60s" },
+              { icon: Palette, title: "Everyone draws", text: "Private canvases, 75s" },
               { icon: Sparkles, title: "Fair rotation", text: "Everyone judges once" },
             ].map(({ icon: Icon, title, text }, i) => (
               <div key={title} className={`sticker p-3 ${i === 1 ? "tilt-r" : "tilt-l"}`}>

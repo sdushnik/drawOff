@@ -163,22 +163,39 @@ describe("ArtistBoard", () => {
       />,
     );
 
-    expect(screen.getByRole("status")).toHaveTextContent("Submitted!");
+    expect(screen.getByRole("status")).toHaveTextContent("Submitted — you can continue drawing");
     expect(screen.getByRole("status")).toHaveAttribute("aria-live", "polite");
   });
 
-  it.each([
-    ["server submitted", true, false],
-    ["server deadline", false, true],
-  ])("locks all editing controls after %s", (_label, locked, timeUp) => {
-    renderBoard({ locked, timeUp });
+  it("pauses editing after early submit but keeps the continue control enabled", () => {
+    renderBoard({ locked: true });
     expect(screen.getByRole("button", { name: "Pen" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Bucket fill" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Color #e5484d" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Brush 8px" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Clear" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /submit early|submitted/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Continue drawing" })).toBeEnabled();
+  });
+
+  it("locks every control after the server deadline", () => {
+    renderBoard({ timeUp: true });
+    expect(screen.getByRole("button", { name: "Pen" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Bucket fill" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Clear" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Submit early" })).toBeDisabled();
+  });
+
+  it("resumes editing when a submitted Artist presses continue", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(true);
+    renderBoard({ locked: true, onSubmit });
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue drawing" }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Pen" })).toBeEnabled());
+    expect(screen.getByRole("button", { name: "Submit early" })).toBeEnabled();
   });
 
   it("locks immediately on early submit and waits for every queued operation acknowledgement", async () => {

@@ -50,7 +50,7 @@ Description: Add responsive role-reveal and word-waiting screens that display ro
 
 ## 13. Building the Artist drawing canvas
 Goal: Let each Artist draw privately on a usable mouse- and touch-enabled canvas.
-Description: Implement the HTML Canvas drawing surface with pen, compact color palette, brush sizes, eraser, undo, clear, and early submit/lock controls. Artists must see and control only their own canvas, and the drawing UI must show the prompt and server-authoritative 60-second countdown.
+Description: Implement the HTML Canvas drawing surface with pen, compact color palette, brush sizes, eraser, undo, clear, and reversible early submit controls. Artists must see and control only their own canvas, and the drawing UI must show the prompt and server-authoritative 75-second countdown.
 
 ## 14. Synchronizing drawings live to the Judge
 Goal: Stream each Artist's drawing updates through the server to the Judge without exposing them to other Artists.
@@ -61,8 +61,8 @@ Goal: Let the Judge watch all anonymous drawings live and focus any one canvas.
 Description: Build a responsive Grid View that adapts to the number of Artists and viewport, plus a Focus View that enlarges a selected canvas. Let the Judge switch views or select another canvas at any time without interrupting updates; provide no drawing or editing tools to the Judge.
 
 ## 16. Freezing canvases at the drawing deadline
-Goal: End the drawing phase at 60 seconds and preserve every final canvas for judging.
-Description: Have the server freeze all synchronized canvases at the authoritative deadline, including blank drawings, then transition to judging. An Artist's early submission locks only that Artist's canvas and must not end the phase for other Artists.
+Goal: End the drawing phase at 75 seconds or when every Artist submits, and preserve every final canvas for judging.
+Description: Have the server freeze all synchronized canvases at the authoritative deadline, including blank drawings, then transition to judging. An Artist's early submission marks only that Artist ready and can be reversed while another Artist is still drawing; the final Artist submission ends drawing immediately.
 
 ## 17. Building the anonymous judging gallery
 Goal: Let the Judge review every completed drawing and rate it independently from 0 to 100.

@@ -240,17 +240,33 @@ describe("drawing privacy and canvas sync", () => {
     for (const a of ctx.artists) expect(serialized).not.toContain(a.playerId);
   });
 
-  it("the judge cannot draw and artists cannot draw after locking or the deadline", () => {
+  it("an Artist can resume after submitting while the drawing phase is active", () => {
     const ctx = toDrawing();
     expectCode(() => ctx.engine.sendOps(ctx.code, ctx.judge.token, [stroke("x", [1, 1])]), "FORBIDDEN");
     ctx.engine.submitCanvas(ctx.code, ctx.artists[0]!.token);
     expectCode(() => ctx.engine.sendOps(ctx.code, ctx.artists[0]!.token, [stroke("y", [1, 1])]), "FORBIDDEN");
-    // Early submit keeps the phase running for everyone else.
     expect(ctx.view(ctx.host).phase).toBe("DRAWING");
+    ctx.engine.submitCanvas(ctx.code, ctx.artists[0]!.token);
+    expect(ctx.engine.sendOps(ctx.code, ctx.artists[0]!.token, [stroke("resumed", [2, 2])])).toBe(1);
     expect(ctx.engine.sendOps(ctx.code, ctx.artists[1]!.token, [stroke("z", [1, 1])])).toBe(1);
     ctx.advance(DRAWING_MS);
     expect(ctx.view(ctx.host).phase).toBe("JUDGING");
     expectCode(() => ctx.engine.sendOps(ctx.code, ctx.artists[1]!.token, [stroke("w", [1, 1])]), "WRONG_PHASE");
+  });
+
+  it("ends drawing immediately when every Artist submits", () => {
+    const ctx = toDrawing();
+    expect(ctx.view(ctx.host).deadline! - ctx.view(ctx.host).serverNow).toBe(75_000);
+
+    for (const artist of ctx.artists.slice(0, -1)) {
+      ctx.engine.submitCanvas(ctx.code, artist.token);
+      expect(ctx.view(ctx.host).phase).toBe("DRAWING");
+    }
+    ctx.engine.submitCanvas(ctx.code, ctx.artists.at(-1)!.token);
+
+    expect(ctx.view(ctx.host).phase).toBe("JUDGING");
+    expect(ctx.view(ctx.judge).gallery).toHaveLength(ctx.artists.length);
+    expect(ctx.artists.every((artist) => ctx.view(artist).myCanvas?.locked)).toBe(true);
   });
 
   it("bucket fill, undo and clear sync as ordered ops", () => {

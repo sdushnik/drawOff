@@ -272,7 +272,7 @@ test("drawing recovery preserves authoritative snapshots, revisions, roles, and 
   const recovered = fixture.view(artist);
   assert.equal(recovered.pause, null);
   assert.equal(recovered.role, "artist");
-  assert.equal(recovered.deadline! - fixture.now, 45_000);
+  assert.equal(recovered.deadline! - fixture.now, 60_000);
   assert.deepEqual(recovered.myCanvas, before.myCanvas);
 
   fixture.machine.submitCanvas(artist);
@@ -381,18 +381,18 @@ test("server clock drives the normal phase sequence through the final result", (
   fixture.machine.selectPrompt(fixture.host, "lighthouse");
   view = fixture.view();
   assert.equal(view.phase, "DRAWING");
-  assert.equal(view.deadline, 65_000);
+  assert.equal(view.deadline, 80_000);
 
   fixture.setTime(view.deadline!);
   fixture.machine.tick();
   view = fixture.view();
   assert.equal(view.phase, "JUDGING");
-  assert.equal(view.deadline, 110_000);
+  assert.equal(view.deadline, 125_000);
 
   submitRatings(fixture);
   view = fixture.view();
   assert.equal(view.phase, "ROUND_RESULT");
-  assert.equal(view.deadline, 77_000);
+  assert.equal(view.deadline, 92_000);
   assert.equal(transitionFromRoundResult(fixture), "ROLE_REVEAL");
   assert.equal(fixture.view().match?.roundIndex, 1);
   assert.equal(fixture.view(fixture.sessions[1]!).role, "judge");
@@ -563,6 +563,32 @@ test("stale timer callbacks and repeated deadline delivery apply each transition
   fixture.runHistoricalTimer(drawingTimerId);
   assert.equal(fixture.view().phase, "JUDGING");
   assert.equal(fixture.transitions.length, afterTickCount);
+});
+
+test("drawing lasts 75 seconds and ends immediately when every Artist submits", () => {
+  const fixture = createFixture(4);
+  advanceToWordSelection(fixture);
+  fixture.machine.selectPrompt(fixture.host, "lighthouse");
+  const [firstArtist, secondArtist, thirdArtist] = fixture.sessions.slice(1);
+  assert.ok(firstArtist && secondArtist && thirdArtist);
+  assert.equal(fixture.view().deadline! - fixture.view().serverNow, 75_000);
+
+  fixture.machine.submitCanvas(firstArtist);
+  fixture.machine.submitCanvas(secondArtist);
+  assert.equal(fixture.view().phase, "DRAWING");
+
+  fixture.machine.submitCanvas(firstArtist);
+  assert.equal(fixture.view(firstArtist).myCanvas?.locked, false);
+  assert.equal(
+    fixture.machine.sendDrawOps(firstArtist, [{ type: "clear", id: "resumed-clear" }]),
+    true,
+  );
+  fixture.machine.submitCanvas(firstArtist);
+  assert.equal(fixture.view().phase, "DRAWING");
+
+  fixture.machine.submitCanvas(thirdArtist);
+  assert.equal(fixture.view().phase, "JUDGING");
+  assert.ok(fixture.view().liveCanvases?.every(({ locked }) => locked));
 });
 
 test("drawing locks each canvas at its server deadline and preserves frozen anonymous snapshots", () => {

@@ -265,8 +265,13 @@ export class GameEngine {
     this.requireActive(room, "DRAWING");
     const drawing = room.match!.round.drawings.find((d) => d.artistId === player.id);
     if (!drawing) throw new GameError("FORBIDDEN", "Only artists can submit.");
-    if (drawing.locked) return;
-    drawing.locked = true;
+    if (room.deadline !== null && this.now() >= room.deadline) {
+      throw new GameError("DEADLINE_PASSED", "Time's up!");
+    }
+    drawing.locked = !drawing.locked;
+    if (room.match!.round.drawings.every((candidate) => candidate.locked)) {
+      this.finishDrawing(room);
+    }
     this.emit(room);
   }
 
@@ -352,9 +357,7 @@ export class GameEngine {
         break;
       }
       case "DRAWING": {
-        for (const d of match!.round.drawings) d.locked = true;
-        const artists = match!.round.drawings.length;
-        this.setPhase(room, "JUDGING", judgingSeconds(artists) * 1000);
+        this.finishDrawing(room);
         break;
       }
       case "JUDGING": {
@@ -396,6 +399,12 @@ export class GameEngine {
         room.deadline = null;
     }
     this.maybePause(room);
+  }
+
+  private finishDrawing(room: RoomRecord) {
+    for (const drawing of room.match!.round.drawings) drawing.locked = true;
+    const artists = room.match!.round.drawings.length;
+    this.setPhase(room, "JUDGING", judgingSeconds(artists) * 1000);
   }
 
   // ---------- views ----------
