@@ -12,6 +12,14 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 vi.mock("./ArtistBoard", () => ({ ArtistBoard: () => <div data-testid="artist-board" /> }));
 vi.mock("./JudgeLiveView", () => ({ JudgeLiveView: () => <div data-testid="judge-live-view" /> }));
+vi.mock("./JudgingGallery", () => ({
+  JudgingGallery: ({ prompt, gallery }: { prompt: string; gallery: { label: string }[] }) => (
+    <div data-testid="judging-gallery">
+      <span>{prompt}</span>
+      {gallery.map(({ label }) => <h3 key={label}>{label}</h3>)}
+    </div>
+  ),
+}));
 vi.mock("./Timer", () => ({ Timer: () => null }));
 
 function makeView(overrides: Partial<PlayerView> = {}): PlayerView {
@@ -195,20 +203,25 @@ describe("RoomScreen confirmed prompt", () => {
     },
   );
 
-  it("shows all locked anonymous canvases to the Judge after the drawing deadline", () => {
+  it("shows each anonymous drawing only once in the judging gallery", () => {
     const view = makeView({
       phase: "JUDGING",
       prompt: "confirmed prompt",
       liveCanvases: [
-        { label: "Artist 1", sequence: 1, canvas: emptyCanvas(), locked: true },
-        { label: "Artist 2", sequence: 2, canvas: emptyCanvas(), locked: true },
+        { label: "Drawing 1", sequence: 1, canvas: emptyCanvas(), locked: true },
+        { label: "Drawing 2", sequence: 2, canvas: emptyCanvas(), locked: true },
+      ],
+      gallery: [
+        { label: "Drawing 1", canvas: emptyCanvas() },
+        { label: "Drawing 2", canvas: emptyCanvas() },
       ],
     });
 
     render(<RoomScreen room={{ ...makeRoom(), view } as GameRoom} />);
 
-    expect(screen.getByText("Drawings are frozen")).toBeInTheDocument();
-    expect(screen.getByText("All canvases are locked")).toBeInTheDocument();
-    expect(screen.getByTestId("judge-live-view")).toBeInTheDocument();
+    expect(screen.getByTestId("judging-gallery")).toHaveTextContent("confirmed prompt");
+    expect(screen.getByRole("heading", { name: "Drawing 1" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Drawing 2" })).toBeInTheDocument();
+    expect(screen.queryByTestId("judge-live-view")).not.toBeInTheDocument();
   });
 });
