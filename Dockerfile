@@ -33,7 +33,8 @@ RUN npm run build \
     'bundledDependencies[2]=better-sqlite3' \
     'bundledDependencies[3]=fastify' \
     'bundledDependencies[4]=kysely' \
-    'bundledDependencies[5]=socket.io' \
+    'bundledDependencies[5]=pg' \
+    'bundledDependencies[6]=socket.io' \
   && mkdir -p /app/artifacts \
   && npm pack --workspace @drawoff/backend --pack-destination /app/artifacts
 

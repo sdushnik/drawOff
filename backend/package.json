@@ -17,6 +17,8 @@
     "start": "node dist/index.js",
     "smoke:production": "node scripts/capacity-test.mjs --smoke",
     "test": "tsx --test test/*.test.ts",
+    "test:postgres": "tsx --test --test-concurrency=1 test/database-repository.test.ts test/persistence-restart.integration.test.ts",
+    "pretest:postgres": "npm run build --workspace @drawoff/contracts",
     "pretest": "npm run build --workspace @drawoff/contracts"
   },
   "dependencies": {
@@ -26,11 +28,13 @@
     "better-sqlite3": "^12.11.1",
     "fastify": "^5.6.2",
     "kysely": "^0.28.19",
+    "pg": "^8.23.1",
     "socket.io": "^4.8.1"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.16.5",
+    "@types/pg": "^8.23.1",
     "socket.io-client": "^4.8.4",
     "tsx": "^4.20.6",
     "typescript": "^5.8.3"

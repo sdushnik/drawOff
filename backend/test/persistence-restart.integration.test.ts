@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { test } from "node:test";
+import BetterSqlite3 from "better-sqlite3";
+import { Pool } from "pg";
 import { io as createSocketClient, type Socket } from "socket.io-client";
 import type { PlayerView, Session } from "@drawoff/contracts";
 import { KyselyGameStateRepository } from "../src/database/repository.js";
 import type { MatchPhaseDurations } from "../src/match-state-machine.js";
+import type { ResourceLimitOptions } from "../src/resource-limits.js";
 import { createPersistentServer } from "../src/server.js";
+import { activeDatabaseDialect, createTestDatabase } from "./database-test-fixture.js";
+
+const dialect = activeDatabaseDialect();
 
 type TestServer = Awaited<ReturnType<typeof createPersistentServer>> & { address: string };
 
@@ -16,12 +19,14 @@ async function start(
   options: {
     now?: () => number;
     phaseDurationsMs?: Partial<MatchPhaseDurations>;
+    resourceLimits?: ResourceLimitOptions;
   } = {},
 ): Promise<TestServer> {
   const server = await createPersistentServer({
     databaseUrl,
     logger: false,
     corsOrigins: ["http://127.0.0.1:8080"],
+    resourceLimits: options.resourceLimits,
     matchStateMachineOptions: {
       now: options.now,
       random: () => 0,
@@ -89,9 +94,9 @@ async function waitForView(
   assert.fail(`Timed out waiting for view; latest phase was ${views.at(-1)?.phase ?? "none"}`);
 }
 
-test("a complete Socket.IO backend restart restores state, timers, privacy, and idempotency", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "drawoff-restart-"));
-  const databaseUrl = `sqlite:${join(directory, "restart.sqlite")}`;
+test(`${dialect}: a complete Socket.IO backend restart restores state, timers, privacy, and idempotency`, async () => {
+  const database = await createTestDatabase("drawoff-restart");
+  const databaseUrl = database.url;
   const clients: Socket[] = [];
   let first: TestServer | undefined;
   let second: TestServer | undefined;
@@ -188,13 +193,13 @@ test("a complete Socket.IO backend restart restores state, timers, privacy, and 
     if (first) await stop(first);
     if (second) await stop(second);
     if (third) await stop(third);
-    rmSync(directory, { recursive: true, force: true });
+    await database.cleanup();
   }
 });
 
-test("offline-expired deadlines transition during a complete backend restart", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "drawoff-overdue-restart-"));
-  const databaseUrl = `sqlite:${join(directory, "overdue.sqlite")}`;
+test(`${dialect}: offline-expired deadlines transition during a complete backend restart`, async () => {
+  const database = await createTestDatabase("drawoff-overdue-restart");
+  const databaseUrl = database.url;
   const clients: Socket[] = [];
   let first: TestServer | undefined;
   let second: TestServer | undefined;
@@ -239,13 +244,13 @@ test("offline-expired deadlines transition during a complete backend restart", a
     clients.forEach((socket) => socket.disconnect());
     if (first) await stop(first);
     if (second) await stop(second);
-    rmSync(directory, { recursive: true, force: true });
+    await database.cleanup();
   }
 });
 
-test("a persisted rematch remains a clean lobby after a complete backend restart", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "drawoff-rematch-restart-"));
-  const databaseUrl = `sqlite:${join(directory, "rematch.sqlite")}`;
+test(`${dialect}: a persisted rematch remains a clean lobby after a complete backend restart`, async () => {
+  const database = await createTestDatabase("drawoff-rematch-restart");
+  const databaseUrl = database.url;
   const clients: Socket[] = [];
   let first: TestServer | undefined;
   let second: TestServer | undefined;
@@ -330,13 +335,13 @@ test("a persisted rematch remains a clean lobby after a complete backend restart
     clients.forEach((socket) => socket.disconnect());
     if (first) await stop(first);
     if (second) await stop(second);
-    rmSync(directory, { recursive: true, force: true });
+    await database.cleanup();
   }
 });
 
-test("lazy room expiry deletes persisted rows before returning not found", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "drawoff-lazy-expiry-"));
-  const databaseUrl = `sqlite:${join(directory, "expiry.sqlite")}`;
+test(`${dialect}: lazy room expiry deletes persisted rows before returning not found`, async () => {
+  const database = await createTestDatabase("drawoff-lazy-expiry");
+  const databaseUrl = database.url;
   let now = 1_000;
   const clients: Socket[] = [];
   let server: TestServer | undefined;
@@ -361,13 +366,44 @@ test("lazy room expiry deletes persisted rows before returning not found", async
     clients.forEach((socket) => socket.disconnect());
     await repository?.close();
     if (server) await stop(server);
-    rmSync(directory, { recursive: true, force: true });
+    await database.cleanup();
   }
 });
 
-test("disconnect pause state commits before remaining players receive it", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "drawoff-disconnect-persist-"));
-  const databaseUrl = `sqlite:${join(directory, "disconnect.sqlite")}`;
+test(`${dialect}: periodic room expiry removes the complete durable aggregate`, async () => {
+  const database = await createTestDatabase("drawoff-periodic-expiry");
+  let now = 1_000;
+  const clients: Socket[] = [];
+  let server: TestServer | undefined;
+  let repository: KyselyGameStateRepository | undefined;
+  try {
+    server = await start(database.url, {
+      now: () => now,
+      resourceLimits: { roomCleanupIntervalMs: 10 },
+    });
+    const client = await connect(server.address);
+    clients.push(client.socket);
+    await request(client.socket, "room:create", { name: "Periodic Expiry Host" });
+    now += 30 * 60 * 1_000;
+
+    repository = KyselyGameStateRepository.open(database.url);
+    await repository.migrate();
+    const deadline = Date.now() + 2_000;
+    while ((await repository.load()).rooms.length !== 0 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.deepEqual(await repository.load(), { rooms: [], matches: [] });
+  } finally {
+    clients.forEach((socket) => socket.disconnect());
+    await repository?.close();
+    if (server) await stop(server);
+    await database.cleanup();
+  }
+});
+
+test(`${dialect}: disconnect pause state commits before remaining players receive it`, async () => {
+  const database = await createTestDatabase("drawoff-disconnect-persist");
+  const databaseUrl = database.url;
   const clients: Socket[] = [];
   let server: TestServer | undefined;
   let repository: KyselyGameStateRepository | undefined;
@@ -403,6 +439,103 @@ test("disconnect pause state commits before remaining players receive it", async
     clients.forEach((socket) => socket.disconnect());
     await repository?.close();
     if (server) await stop(server);
-    rmSync(directory, { recursive: true, force: true });
+    await database.cleanup();
+  }
+});
+
+test(`${dialect}: concurrent acknowledged client mutations serialize into one durable snapshot`, async () => {
+  const database = await createTestDatabase("drawoff-concurrent-persistence");
+  const clients: Socket[] = [];
+  let server: TestServer | undefined;
+  let repository: KyselyGameStateRepository | undefined;
+  try {
+    server = await start(database.url);
+    const hostClient = await connect(server.address);
+    const guests = await Promise.all([connect(server.address), connect(server.address)]);
+    clients.push(hostClient.socket, ...guests.map(({ socket }) => socket));
+    const host = (await request<{ session: Session }>(hostClient.socket, "room:create", {
+      name: "Concurrent Host",
+    })).session;
+
+    const [firstJoin, secondJoin, cycles] = await Promise.all([
+      request<{ session: Session }>(guests[0]!.socket, "room:join", {
+        code: host.roomCode,
+        name: "Concurrent Guest One",
+      }),
+      request<{ session: Session }>(guests[1]!.socket, "room:join", {
+        code: host.roomCode,
+        name: "Concurrent Guest Two",
+      }),
+      request(hostClient.socket, "match:set-cycles", { session: host, cycles: 3 }),
+    ]);
+    assert.notEqual(firstJoin.session.playerId, secondJoin.session.playerId);
+    assert.ok(cycles);
+
+    await stop(server);
+    server = undefined;
+    repository = KyselyGameStateRepository.open(database.url);
+    await repository.migrate();
+    const durable = await repository.load();
+    assert.equal(durable.rooms.length, 1);
+    assert.equal(durable.rooms[0]?.players.length, 3);
+    assert.equal(durable.rooms[0]?.cycles, 3);
+    assert.deepEqual(
+      new Set(durable.rooms[0]?.players.map(({ name }) => name)),
+      new Set(["Concurrent Host", "Concurrent Guest One", "Concurrent Guest Two"]),
+    );
+  } finally {
+    clients.forEach((socket) => socket.disconnect());
+    await repository?.close();
+    if (server) await stop(server);
+    await database.cleanup();
+  }
+});
+
+test(`${dialect}: a failed durable write rolls back memory and publishes no success`, async () => {
+  const database = await createTestDatabase("drawoff-write-failure");
+  const clients: Socket[] = [];
+  let server: TestServer | undefined;
+  try {
+    server = await start(database.url);
+    const hostClient = await connect(server.address);
+    const guestClient = await connect(server.address);
+    clients.push(hostClient.socket, guestClient.socket);
+    const host = (await request<{ session: Session }>(hostClient.socket, "room:create", {
+      name: "Rollback Host",
+    })).session;
+
+    if (database.dialect === "sqlite") {
+      const sqlite = new BetterSqlite3(database.filename!);
+      sqlite.exec("drop table players");
+      sqlite.close();
+    } else {
+      const pool = new Pool({ connectionString: database.url });
+      try {
+        await pool.query("drop table players");
+      } finally {
+        await pool.end();
+      }
+    }
+
+    await assert.rejects(
+      request(guestClient.socket, "room:join", {
+        code: host.roomCode,
+        name: "Rejected Guest",
+      }),
+      /SERVICE_UNAVAILABLE/,
+    );
+    assert.deepEqual(
+      server.roomService.getRoom(host.roomCode).players.map(({ name }) => name),
+      ["Rollback Host"],
+    );
+    assert.equal(
+      hostClient.views.some((view) =>
+        view.players.some(({ name }) => name === "Rejected Guest")),
+      false,
+    );
+  } finally {
+    clients.forEach((socket) => socket.disconnect());
+    if (server) await stop(server);
+    await database.cleanup();
   }
 });

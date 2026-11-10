@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import BetterSqlite3 from "better-sqlite3";
+import { Pool } from "pg";
 import { MatchStateMachine } from "../src/match-state-machine.js";
 import {
   databaseUrlFromEnvironment,
@@ -11,16 +12,9 @@ import {
   KyselyGameStateRepository,
 } from "../src/database/repository.js";
 import { RoomService } from "../src/room-service.js";
+import { activeDatabaseDialect, createTestDatabase } from "./database-test-fixture.js";
 
-function temporaryDatabase() {
-  const directory = mkdtempSync(join(tmpdir(), "drawoff-db-"));
-  const filename = join(directory, "state.sqlite");
-  return {
-    filename,
-    url: `sqlite:${filename}`,
-    cleanup: () => rmSync(directory, { recursive: true, force: true }),
-  };
-}
+const dialect = activeDatabaseDialect();
 
 function createGame(now: () => number) {
   let player = 0;
@@ -49,21 +43,53 @@ async function save(
   });
 }
 
-test("DATABASE_URL is mandatory and unsupported schemes are rejected safely", () => {
+test("DATABASE_URL is mandatory and unsupported schemes are rejected safely", async () => {
   assert.throws(
     () => databaseUrlFromEnvironment({}),
     (error) => error instanceof DatabaseConfigurationError &&
       error.message === "DATABASE_URL must be configured.",
   );
-  assert.throws(
-    () => KyselyGameStateRepository.open("postgresql://secret@example/db"),
-    (error) => error instanceof DatabaseConfigurationError &&
-      !error.message.includes("secret"),
-  );
-  assert.throws(
-    () => KyselyGameStateRepository.open("sqlite:"),
-    (error) => error instanceof DatabaseConfigurationError,
-  );
+  for (const value of ["", "sqlite:", "mysql://host/db", "http://host/db", "host/db",
+    "postgresql://host", "postgres://host/#fragment"]) {
+    assert.throws(
+      () => KyselyGameStateRepository.open(value),
+      (error) => error instanceof DatabaseConfigurationError &&
+        error.message === "Database configuration is invalid or unavailable." &&
+        (value === "" || !error.message.includes(value)),
+    );
+  }
+  for (const protocol of ["postgres", "postgresql"]) {
+    const secretUrl = `${protocol}://distinct-user:distinct-password@127.0.0.1:1/` +
+      "drawoff_test_redaction?application_name=distinct-query";
+    const repository = KyselyGameStateRepository.open(secretUrl);
+    await assert.rejects(
+      repository.migrate(),
+      (error) => error instanceof DatabaseConfigurationError &&
+        error.message === "Database migration failed." &&
+        !JSON.stringify(error).includes("distinct"),
+    );
+    await repository.close();
+  }
+  const configuredPostgres = process.env["POSTGRES_TEST_DATABASE_URL"];
+  if (configuredPostgres) {
+    const postgresAlias = configuredPostgres.replace(/^postgresql:/, "postgres:");
+    const repository = KyselyGameStateRepository.open(postgresAlias);
+    await repository.migrate();
+    const state = await repository.load();
+    assert.ok(Array.isArray(state.rooms));
+    assert.ok(Array.isArray(state.matches));
+    await repository.close();
+    const observer = new Pool({ connectionString: configuredPostgres, max: 1 });
+    try {
+      const active = await observer.query<{ connections: string }>(
+        "select count(*)::text as connections from pg_stat_activity " +
+          "where datname = current_database() and usename = current_user",
+      );
+      assert.equal(active.rows[0]?.connections, "1");
+    } finally {
+      await observer.end();
+    }
+  }
   const directory = mkdtempSync(join(tmpdir(), "drawoff-unavailable-"));
   const occupied = join(directory, "not-a-directory");
   writeFileSync(occupied, "occupied");
@@ -78,8 +104,8 @@ test("DATABASE_URL is mandatory and unsupported schemes are rejected safely", ()
   }
 });
 
-test("clean migrations are repeatable and persistence contains hashes, never raw tokens", async () => {
-  const database = temporaryDatabase();
+test(`${dialect}: clean migrations are repeatable and persistence contains hashes, never raw tokens`, async () => {
+  const database = await createTestDatabase("drawoff-db");
   let repository: KyselyGameStateRepository | undefined;
   try {
     repository = KyselyGameStateRepository.open(database.url);
@@ -90,23 +116,39 @@ test("clean migrations are repeatable and persistence contains hashes, never raw
     await repository.close();
     repository = undefined;
 
-    const sqlite = new BetterSqlite3(database.filename, { readonly: true });
-    const rows = sqlite.prepare("select session_token_hash from players").all() as Array<{
-      session_token_hash: string;
-    }>;
-    sqlite.close();
+    let rows: Array<{ session_token_hash: string }>;
+    let storedBytes: string;
+    if (database.dialect === "sqlite") {
+      const sqlite = new BetterSqlite3(database.filename!, { readonly: true });
+      rows = sqlite.prepare("select session_token_hash from players").all() as typeof rows;
+      sqlite.close();
+      storedBytes = readFileSync(database.filename!).toString("latin1");
+    } else {
+      const pool = new Pool({ connectionString: database.url });
+      try {
+        rows = (await pool.query<{ session_token_hash: string }>(
+          "select session_token_hash from players",
+        )).rows;
+        storedBytes = JSON.stringify((await Promise.all([
+          pool.query("select * from rooms"),
+          pool.query("select * from players"),
+          pool.query("select * from match_states"),
+        ])).map((result) => result.rows));
+      } finally {
+        await pool.end();
+      }
+    }
     assert.equal(rows.length, 3);
     assert.ok(rows.every(({ session_token_hash }) => session_token_hash.length === 44));
-    const bytes = readFileSync(database.filename).toString("latin1");
-    for (const session of game.sessions) assert.equal(bytes.includes(session.token), false);
+    for (const session of game.sessions) assert.equal(storedBytes.includes(session.token), false);
   } finally {
     await repository?.close();
-    database.cleanup();
+    await database.cleanup();
   }
 });
 
-test("rooms, private canvases, revisions, locks, and duplicate history survive restart", async () => {
-  const database = temporaryDatabase();
+test(`${dialect}: rooms, private canvases, revisions, locks, and duplicate history survive restart`, async () => {
+  const database = await createTestDatabase("drawoff-db");
   let now = 1_000;
   let repository = KyselyGameStateRepository.open(database.url);
   try {
@@ -148,12 +190,12 @@ test("rooms, private canvases, revisions, locks, and duplicate history survive r
     assert.equal(judgeView.players.some((player) => player.id === game.artistOne.playerId), false);
   } finally {
     await repository.close();
-    database.cleanup();
+    await database.cleanup();
   }
 });
 
-test("restart immediately applies an offline-expired authoritative deadline", async () => {
-  const database = temporaryDatabase();
+test(`${dialect}: restart immediately applies an offline-expired authoritative deadline`, async () => {
+  const database = await createTestDatabase("drawoff-db");
   let now = 1_000;
   let repository = KyselyGameStateRepository.open(database.url);
   try {
@@ -182,12 +224,12 @@ test("restart immediately applies an offline-expired authoritative deadline", as
     assert.ok(recovered.suggestions?.length === 3);
   } finally {
     await repository.close();
-    database.cleanup();
+    await database.cleanup();
   }
 });
 
-test("constraints roll back duplicate aggregates and expired-room deletion cascades", async () => {
-  const database = temporaryDatabase();
+test(`${dialect}: constraints roll back duplicate aggregates and expired-room deletion cascades`, async () => {
+  const database = await createTestDatabase("drawoff-db");
   const repository = KyselyGameStateRepository.open(database.url);
   try {
     await repository.migrate();
@@ -208,12 +250,12 @@ test("constraints roll back duplicate aggregates and expired-room deletion casca
     assert.deepEqual(await repository.load(), { rooms: [], matches: [] });
   } finally {
     await repository.close();
-    database.cleanup();
+    await database.cleanup();
   }
 });
 
-test("ratings remain idempotent after restart and rematch clears only match state", async () => {
-  const database = temporaryDatabase();
+test(`${dialect}: ratings remain idempotent after restart and rematch clears only match state`, async () => {
+  const database = await createTestDatabase("drawoff-db");
   let now = 1_000;
   let repository = KyselyGameStateRepository.open(database.url);
   try {
@@ -277,6 +319,6 @@ test("ratings remain idempotent after restart and rematch clears only match stat
     assert.deepEqual(rooms.resumeSession(initial.host), initial.host);
   } finally {
     await repository.close();
-    database.cleanup();
+    await database.cleanup();
   }
 });

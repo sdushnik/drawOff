@@ -35,6 +35,45 @@ of exact frontend origins (for example, `https://draw.example`). The same
 allowlist is used for HTTP and Socket.IO, with credentialed CORS enabled; a
 wildcard origin is not accepted.
 
+## Persistence
+
+The backend requires `DATABASE_URL` outside the production container default
+and supports exactly these formats:
+
+```text
+sqlite:./data/drawoff.sqlite
+sqlite:/absolute/path/drawoff.sqlite
+sqlite::memory:
+postgresql://USER:PASSWORD@HOST:5432/DATABASE
+postgres://USER:PASSWORD@HOST:5432/DATABASE
+```
+
+SQLite remains fully supported. Relative paths resolve from the current
+working directory, parent directories are created automatically, and existing
+databases from the initial SQLite persistence release migrate in place. Never
+commit a real URL or credential; set it in the process environment.
+
+Run the versioned migrations explicitly before startup. The command is safe to
+repeat on either dialect:
+
+```sh
+DATABASE_URL='sqlite:./data/drawoff.sqlite' npm run db:migrate
+DATABASE_URL='postgresql://USER:PASSWORD@HOST:5432/DATABASE' npm run db:migrate
+```
+
+PostgreSQL verification uses the same parameterized repository and restart
+contract as SQLite:
+
+```sh
+POSTGRES_TEST_DATABASE_URL='postgresql://drawoff_test_user:LOCAL_TEST_PASSWORD@127.0.0.1:55432/drawoff_test' \
+  npm run test:postgres --workspace @drawoff/backend
+```
+
+The test command refuses PostgreSQL databases whose name does not begin with
+`drawoff_test`. The complete standalone PostgreSQL 16 container workflow and
+credential-safe deployment examples are in
+[`_docs/deployment.md`](_docs/deployment.md).
+
 ## Test
 
 Run the test suites for all workspaces:

@@ -4,8 +4,10 @@ import BetterSqlite3 from "better-sqlite3";
 import {
   Kysely,
   Migrator,
+  PostgresDialect,
   SqliteDialect,
 } from "kysely";
+import { Pool, types as postgresTypes } from "pg";
 import type { DurableMatchProgress } from "../match-state-machine.js";
 import type { DurableRoomState, MatchSchedule } from "../room-service.js";
 import { DrawOffMigrationProvider } from "./migrations.js";
@@ -38,6 +40,31 @@ function sqliteFilename(databaseUrl: string): string {
   return isAbsolute(value) ? value : resolve(process.cwd(), value);
 }
 
+function postgresConnectionString(databaseUrl: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(databaseUrl);
+  } catch {
+    throw new DatabaseConfigurationError();
+  }
+  if (
+    (parsed.protocol !== "postgres:" && parsed.protocol !== "postgresql:") ||
+    parsed.hostname === "" ||
+    parsed.pathname === "" ||
+    parsed.pathname === "/" ||
+    parsed.hash !== ""
+  ) {
+    throw new DatabaseConfigurationError();
+  }
+  return databaseUrl;
+}
+
+postgresTypes.setTypeParser(postgresTypes.builtins.INT8, (value) => {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed)) throw new Error("Unsafe PostgreSQL bigint value.");
+  return parsed;
+});
+
 export function databaseUrlFromEnvironment(
   environment: NodeJS.ProcessEnv = process.env,
 ): string {
@@ -51,13 +78,22 @@ export class KyselyGameStateRepository implements GameStateRepository {
 
   static open(databaseUrl: string): KyselyGameStateRepository {
     try {
-      const filename = sqliteFilename(databaseUrl);
-      if (filename !== ":memory:") mkdirSync(dirname(filename), { recursive: true });
-      const sqlite = new BetterSqlite3(filename);
-      sqlite.pragma("foreign_keys = ON");
-      sqlite.pragma("journal_mode = WAL");
+      if (databaseUrl.startsWith("sqlite:")) {
+        const filename = sqliteFilename(databaseUrl);
+        if (filename !== ":memory:") mkdirSync(dirname(filename), { recursive: true });
+        const sqlite = new BetterSqlite3(filename);
+        sqlite.pragma("foreign_keys = ON");
+        sqlite.pragma("journal_mode = WAL");
+        return new KyselyGameStateRepository(new Kysely<DatabaseSchema>({
+          dialect: new SqliteDialect({ database: sqlite }),
+        }));
+      }
+
+      const connectionString = postgresConnectionString(databaseUrl);
       return new KyselyGameStateRepository(new Kysely<DatabaseSchema>({
-        dialect: new SqliteDialect({ database: sqlite }),
+        dialect: new PostgresDialect({
+          pool: new Pool({ connectionString }),
+        }),
       }));
     } catch (error) {
       if (error instanceof DatabaseConfigurationError) throw error;
@@ -157,7 +193,11 @@ export class KyselyGameStateRepository implements GameStateRepository {
   }
 
   async close(): Promise<void> {
-    await this.db.destroy();
+    try {
+      await this.db.destroy();
+    } catch {
+      throw new DatabaseConfigurationError("Database shutdown failed.");
+    }
   }
 }
 
