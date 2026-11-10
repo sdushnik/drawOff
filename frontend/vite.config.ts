@@ -5,11 +5,16 @@
 //     React/TanStack dedupe, error logger plugins, and sandbox detection (port/host/strictPort).
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
+import type { ConfigEnv } from "vite";
 
-export default defineConfig({
-  tanstackStart: {
-    // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
-    // nitro/vite builds from this
-    server: { entry: "server" },
-  },
-});
+export default (environment: ConfigEnv) =>
+  defineConfig({
+    // The container build is a static SPA served by Fastify. Development keeps
+    // Lovable's existing TanStack/Nitro behavior.
+    ...(environment.command === "build" ? { nitro: false } : {}),
+    tanstackStart: {
+      ...(environment.command === "build" ? { spa: { enabled: true } } : {}),
+      // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
+      server: { entry: "server" },
+    },
+  })(environment);

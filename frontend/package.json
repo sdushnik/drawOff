@@ -99,5 +99,13 @@
     "typescript-eslint": "^8.14.0",
     "vite": "^8.3.5",
     "vitest": "^4.1.10"
+  },
+  "optionalDependencies": {
+    "@rolldown/binding-linux-arm64-gnu": "^1.2.1",
+    "@rolldown/binding-linux-x64-gnu": "^1.2.1",
+    "@tailwindcss/oxide-linux-arm64-gnu": "^4.3.4",
+    "@tailwindcss/oxide-linux-x64-gnu": "^4.3.4",
+    "lightningcss-linux-arm64-gnu": "^1.33.0",
+    "lightningcss-linux-x64-gnu": "^1.33.0"
   }
 }

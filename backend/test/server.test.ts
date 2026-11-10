@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Writable } from "node:stream";
 import { test } from "node:test";
 import Fastify from "fastify";
@@ -145,6 +148,70 @@ test("GET /health reports ready after Fastify initialization", async () => {
     assert.equal(healthResponseSchema.safeParse(response.json()).success, true);
   } finally {
     await closeServer(io);
+  }
+});
+
+test("production frontend assets and SPA routes share Fastify without shadowing backend paths", async () => {
+  const assets = await mkdtemp(join(tmpdir(), "drawoff-assets-"));
+  await mkdir(join(assets, "assets"));
+  await writeFile(join(assets, "_shell.html"), "<!doctype html><main>DrawOff SPA shell</main>");
+  await writeFile(join(assets, "assets", "app-ABC123.js"), "globalThis.drawOffLoaded = true;");
+  const { app, io } = createServer({
+    logger: false,
+    frontendAssetsDirectory: assets,
+  });
+
+  try {
+    const home = await app.inject({
+      method: "GET",
+      url: "/",
+      headers: { accept: "text/html" },
+    });
+    assert.equal(home.statusCode, 200);
+    assert.match(home.body, /DrawOff SPA shell/);
+    assert.doesNotMatch(home.headers["cache-control"] ?? "", /immutable/);
+
+    const invite = await app.inject({
+      method: "GET",
+      url: "/room/ABC123",
+      headers: { accept: "text/html" },
+    });
+    assert.equal(invite.statusCode, 200);
+    assert.match(invite.body, /DrawOff SPA shell/);
+
+    const asset = await app.inject({ method: "GET", url: "/assets/app-ABC123.js" });
+    assert.equal(asset.statusCode, 200);
+    assert.match(asset.body, /drawOffLoaded/);
+    assert.match(asset.headers["cache-control"] ?? "", /immutable/);
+
+    const missingAsset = await app.inject({
+      method: "GET",
+      url: "/assets/missing.js",
+      headers: { accept: "text/html" },
+    });
+    assert.equal(missingAsset.statusCode, 404);
+    assert.deepEqual(missingAsset.json(), {
+      code: "NOT_FOUND",
+      message: "The requested resource was not found.",
+    });
+
+    const socketPath = await app.inject({
+      method: "GET",
+      url: "/socket.io/not-a-client-request",
+      headers: { accept: "text/html" },
+    });
+    assert.notEqual(socketPath.headers["content-type"], "text/html; charset=utf-8");
+
+    const health = await app.inject({
+      method: "GET",
+      url: "/health",
+      headers: { accept: "text/html" },
+    });
+    assert.equal(health.statusCode, 200);
+    assert.deepEqual(health.json(), { status: "ready" });
+  } finally {
+    await closeServer(io);
+    await rm(assets, { recursive: true, force: true });
   }
 });
 

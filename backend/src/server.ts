@@ -4,7 +4,9 @@ import Fastify, {
   type FastifyServerOptions,
 } from "fastify";
 import { randomUUID } from "node:crypto";
+import { resolve } from "node:path";
 import cors from "@fastify/cors";
+import fastifyStatic from "@fastify/static";
 import { Server as SocketIOServer, type Socket } from "socket.io";
 import type {
   ClientToServerPayloads,
@@ -744,6 +746,28 @@ function sendHttpError(
     .send(serviceErrorPayloadSchema.parse({ code, message }));
 }
 
+function isSpaNavigation(url: string, acceptHeader: string | undefined): boolean {
+  if (!acceptHeader?.includes("text/html")) return false;
+  const pathname = new URL(url, "http://drawoff.local").pathname;
+  if (pathname === "/health" || pathname.startsWith("/socket.io")) return false;
+  if (pathname === "/assets" || pathname.startsWith("/assets/")) return false;
+  const finalSegment = pathname.split("/").at(-1) ?? "";
+  return !finalSegment.includes(".");
+}
+
+export function registerFrontendAssets(
+  app: FastifyInstance,
+  frontendAssetsDirectory: string,
+): void {
+  void app.register(fastifyStatic, {
+    root: resolve(frontendAssetsDirectory),
+    wildcard: false,
+    index: false,
+    maxAge: "1y",
+    immutable: true,
+  });
+}
+
 export function registerHealthRoute(app: FastifyInstance, isReady: () => boolean): void {
   app.get("/health", async (_request, reply) => {
     if (!isReady()) {
@@ -763,6 +787,7 @@ export function createServer(
     resourceLimits?: ResourceLimitOptions;
     repository?: GameStateRepository;
     initialMatches?: readonly DurableMatchProgress[];
+    frontendAssetsDirectory?: string;
   } = {},
 ) {
   const corsOrigins = validateCorsOrigins(options.corsOrigins ?? resolveCorsOrigins());
@@ -796,9 +821,22 @@ export function createServer(
   });
   registerHealthRoute(app, () => fastifyReady && io.engine !== undefined);
 
-  app.setNotFoundHandler((_request, reply) =>
-    sendHttpError(reply, 404, "NOT_FOUND", "The requested resource was not found."),
-  );
+  if (options.frontendAssetsDirectory) {
+    registerFrontendAssets(app, options.frontendAssetsDirectory);
+  }
+
+  app.setNotFoundHandler((request, reply) => {
+    if (
+      options.frontendAssetsDirectory &&
+      (request.method === "GET" || request.method === "HEAD") &&
+      isSpaNavigation(request.url, request.headers.accept)
+    ) {
+      return reply
+        .type("text/html; charset=utf-8")
+        .sendFile("_shell.html", { maxAge: 0, immutable: false });
+    }
+    return sendHttpError(reply, 404, "NOT_FOUND", "The requested resource was not found.");
+  });
   app.setErrorHandler((error, _request, reply) => {
     const statusCode =
       typeof error === "object" &&
@@ -849,6 +887,7 @@ export async function createPersistentServer(
     resourceLimits?: ResourceLimitOptions;
     matchStateMachineOptions?: Omit<MatchStateMachineOptions, "onTransition">;
     databaseUrl?: string;
+    frontendAssetsDirectory?: string;
   } = {},
 ) {
   const repository = KyselyGameStateRepository.open(
@@ -867,6 +906,7 @@ export async function createPersistentServer(
       roomService,
       repository,
       initialMatches: state.matches,
+      frontendAssetsDirectory: options.frontendAssetsDirectory,
     });
     await repository.replace({
       rooms: roomService.exportDurableState(),
@@ -887,12 +927,14 @@ export async function startServer(
     corsOrigins?: readonly string[];
     resourceLimits?: ResourceLimitOptions;
     databaseUrl?: string;
+    frontendAssetsDirectory?: string;
   } = {},
 ): Promise<RunningServer> {
   const { app, io } = await createPersistentServer({
     corsOrigins: options.corsOrigins,
     resourceLimits: options.resourceLimits ?? resourceLimitOptionsFromEnvironment(),
     databaseUrl: options.databaseUrl,
+    frontendAssetsDirectory: options.frontendAssetsDirectory,
   });
   const address = await app.listen({
     host: options.host ?? "0.0.0.0",
