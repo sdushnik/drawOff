@@ -1,6 +1,7 @@
-import type { Locator, Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import type { PlayerView } from "@drawoff/contracts";
 import { createSocketGameService } from "../src/services/socketGameService";
+import { drawCanvasStroke, renderedCanvasHash } from "./canvas-helpers";
 import { expect, test, type Player } from "./fixtures";
 import { createRoom, joinRoom } from "./room-helpers";
 import { frontendServiceCall, serverUrl, storedSession } from "./service-helpers";
@@ -28,31 +29,6 @@ async function currentView(page: Page): Promise<PlayerView> {
       },
     );
   });
-}
-
-async function renderedCanvasHash(canvas: Locator): Promise<string> {
-  await expect(canvas).toBeVisible();
-  return canvas.evaluate(async (element) => {
-    if (!(element instanceof HTMLCanvasElement)) throw new Error("Expected a canvas element.");
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-    const context = element.getContext("2d", { willReadFrequently: true });
-    if (!context) throw new Error("The browser did not provide a 2D canvas context.");
-    const rgba = context.getImageData(0, 0, element.width, element.height).data;
-    const digest = await crypto.subtle.digest("SHA-256", rgba);
-    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join(
-      "",
-    );
-  });
-}
-
-async function drawStroke(page: Page): Promise<void> {
-  const canvas = page.getByLabel("Your canvas");
-  const box = await canvas.boundingBox();
-  if (!box) throw new Error("Artist canvas has no bounding box.");
-  await page.mouse.move(box.x + 30, box.y + 30);
-  await page.mouse.down();
-  await page.mouse.move(box.x + 90, box.y + 80, { steps: 4 });
-  await page.mouse.up();
 }
 
 async function expectVisibleRoleReveal(
@@ -128,7 +104,7 @@ test("three players visibly rotate Judge once across a complete cycle", async ({
         await expect(artist.page.getByText(prompt, { exact: true }).first()).toBeVisible();
         await expect(artist.page.getByLabel("Your canvas")).toBeVisible();
         await expect(artist.page.getByLabel(/Drawing [12], live/)).toHaveCount(0);
-        await drawStroke(artist.page);
+        await drawCanvasStroke(artist.page);
       }),
     );
 
