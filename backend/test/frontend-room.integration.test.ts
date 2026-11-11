@@ -66,6 +66,44 @@ test("two frontend Socket.IO clients create and join the same live room", async 
   }
 });
 
+test("a kicked frontend client is told that its room session was revoked", async () => {
+  const { app, io } = createServer({ logger: false });
+  const address = await app.listen({ host: "127.0.0.1", port: 0 });
+  const hostClient = createSocketGameService(address);
+  const guestClient = createSocketGameService(address);
+  let stopHostUpdates = () => {};
+  let stopGuestUpdates = () => {};
+
+  try {
+    const host = await hostClient.createRoom("Host");
+    stopHostUpdates = hostClient.subscribe(host, () => {});
+    const guest = await guestClient.joinRoom(host.roomCode, "Guest");
+    let resolveAttached = () => {};
+    const attached = new Promise<void>((resolve) => {
+      resolveAttached = resolve;
+    });
+    const revoked = new Promise<{ code: string; message: string }>((resolve) => {
+      stopGuestUpdates = guestClient.subscribe(
+        guest,
+        () => resolveAttached(),
+        (error) => resolve({ code: error.code, message: error.message }),
+      );
+    });
+
+    await attached;
+    await hostClient.kickPlayer(host, guest.playerId);
+
+    assert.deepEqual(await revoked, {
+      code: "UNAUTHORIZED",
+      message: "You're no longer in this room.",
+    });
+  } finally {
+    stopHostUpdates();
+    stopGuestUpdates();
+    await new Promise<void>((resolve) => io.close(() => resolve()));
+  }
+});
+
 test("live Socket.IO rating submissions reject players outside an active match", async () => {
   const { app, io } = createServer({ logger: false });
   const address = await app.listen({ host: "127.0.0.1", port: 0 });

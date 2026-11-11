@@ -39,6 +39,9 @@ export function createSocketGameService(serverUrl: string): GameService {
     for (const listener of viewListeners) listener(parsed.data);
   };
   socket.on("state:update", onView);
+  socket.on("error", (error: unknown) =>
+    activeOnError?.(toServiceError(error)),
+  );
   socket.on("reaction:new", (payload: unknown) => {
     const parsed = reactionSchema.safeParse(payload);
     if (!parsed.success) {

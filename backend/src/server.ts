@@ -569,7 +569,10 @@ function registerRoomHandlers(
                 attached.playerId === playerId
               ) {
                 const target = io.sockets.sockets.get(socketId);
-                if (target) await detach(target, false);
+                if (target) {
+                  emitSocketError(target, "UNAUTHORIZED", "You're no longer in this room.");
+                  await detach(target, false);
+                }
               }
             }
           });
