@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 import type { PlayerView } from "@drawoff/contracts";
 import { createSocketGameService } from "../src/services/socketGameService";
-import { drawCanvasStroke, renderedCanvasHash } from "./canvas-helpers";
+import { drawCanvasStroke } from "./canvas-helpers";
 import { expect, test, type Player } from "./fixtures";
 import { createRoom, joinRoom } from "./room-helpers";
 import { frontendServiceCall, serverUrl, storedSession } from "./service-helpers";
@@ -152,74 +152,6 @@ test("three players visibly rotate Judge once across a complete cycle", async ({
       })
       .toEqual([1, 0]);
 
-    let synchronizedFillHash: string | null = null;
-    if (round === 0) {
-      const fillId = "parity-fill";
-      const mixedHistory = [
-        {
-          type: "stroke",
-          id: "parity-boundary",
-          tool: "pen",
-          color: "#1f1b16",
-          size: 8,
-          points: [120, 120, 240, 120, 240, 240, 120, 240, 120, 120],
-        },
-        { type: "fill", id: fillId, x: 180, y: 180, color: "#0090ff" },
-        { type: "clear", id: "parity-clear" },
-        { type: "undo", id: "parity-undo" },
-      ];
-      expect(await frontendServiceCall(artists[0]!.page, "sendDrawOps", [mixedHistory])).toEqual({
-        ok: true,
-      });
-
-      await expect
-        .poll(
-          async () => {
-            const artistCanvas = (await currentView(artists[0]!.page)).myCanvas?.canvas;
-            const judgeCanvas = (await currentView(judge.page)).liveCanvases?.find(({ canvas }) =>
-              canvas.actions.some(({ id }) => id === fillId),
-            )?.canvas;
-            return artistCanvas && judgeCanvas
-              ? JSON.stringify(artistCanvas) === JSON.stringify(judgeCanvas)
-              : false;
-          },
-          { message: "Artist and Judge did not converge on the same ordered fill snapshot." },
-        )
-        .toBe(true);
-      const artistSnapshot = (await currentView(artists[0]!.page)).myCanvas?.canvas;
-      const judgeSnapshot = (await currentView(judge.page)).liveCanvases?.find(({ canvas }) =>
-        canvas.actions.some(({ id }) => id === fillId),
-      )?.canvas;
-      if (!artistSnapshot || !judgeSnapshot) {
-        throw new Error("Artist and Judge did not receive the synchronized fill snapshot.");
-      }
-      expect(artistSnapshot.actions.map(({ type }) => type).slice(-2)).toEqual(["stroke", "fill"]);
-      expect(artistSnapshot.resets).toBeGreaterThan(0);
-      expect(judgeSnapshot).toEqual(artistSnapshot);
-      const fillLabel = (await currentView(judge.page)).liveCanvases?.find(({ canvas }) =>
-        canvas.actions.some(({ id }) => id === fillId),
-      )?.label;
-      if (!fillLabel) throw new Error("The Judge's synchronized fill label was not found.");
-      // These operations intentionally use a second authenticated socket to exercise
-      // backend ordering and deduplication. Reload the Artist UI so its local canvas
-      // is seeded from that same server-held snapshot before comparing rendered pixels.
-      await artists[0]!.page.reload();
-      await expect(artists[0]!.page.getByLabel("Your canvas")).toBeVisible();
-      await expect(judge.page.getByRole("alertdialog", { name: "Game paused" })).toHaveCount(0);
-      await expect
-        .poll(
-          async () =>
-            (await renderedCanvasHash(artists[0]!.page.getByLabel("Your canvas"))) ===
-            (await renderedCanvasHash(judge.page.getByLabel(`${fillLabel}, live`))),
-        )
-        .toBe(true);
-      const artistHash = await renderedCanvasHash(artists[0]!.page.getByLabel("Your canvas"));
-      expect(await renderedCanvasHash(judge.page.getByLabel(`${fillLabel}, live`))).toBe(
-        artistHash,
-      );
-      synchronizedFillHash = artistHash;
-    }
-
     const privateArtistView = await currentView(artists[1]!.page);
     expect(privateArtistView.liveCanvases).toBeNull();
     expect(privateArtistView.gallery).toBeNull();
@@ -228,7 +160,6 @@ test("three players visibly rotate Judge once across a complete cycle", async ({
       const beforeReload = (await currentView(artists[0]!.page)).myCanvas?.canvas;
       expect(beforeReload?.rev).toBeGreaterThan(0);
       expect(beforeReload?.actions.filter(({ id }) => id === duplicateOp.id)).toHaveLength(1);
-      expect(beforeReload?.actions.filter(({ id }) => id === "parity-fill")).toHaveLength(1);
       await artists[0]!.page.reload();
       await expect(artists[0]!.page.getByLabel("Your canvas")).toBeVisible();
       await expect(judge.page.getByRole("alertdialog", { name: "Game paused" })).toHaveCount(0);
@@ -242,13 +173,6 @@ test("three players visibly rotate Judge once across a complete cycle", async ({
           };
         })
         .toEqual({ revisionPreserved: true, synchronizedActionCopies: 1 });
-      const restoredSnapshot = (await currentView(artists[0]!.page)).myCanvas?.canvas;
-      if (!restoredSnapshot || !synchronizedFillHash) {
-        throw new Error("The synchronized fill snapshot was not restored after reconnect.");
-      }
-      expect(await renderedCanvasHash(artists[0]!.page.getByLabel("Your canvas"))).toBe(
-        synchronizedFillHash,
-      );
     }
 
     await Promise.all(

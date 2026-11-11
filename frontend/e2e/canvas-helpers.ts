@@ -34,6 +34,33 @@ export async function canvasInkPixelCount(canvas: Locator): Promise<number> {
   });
 }
 
+export async function canvasPixel(
+  canvas: Locator,
+  point: readonly [number, number],
+): Promise<readonly [number, number, number, number]> {
+  await expect(canvas).toBeVisible();
+  return canvas.evaluate(async (element, [xRatio, yRatio]) => {
+    if (!(element instanceof HTMLCanvasElement)) throw new Error("Expected a canvas element.");
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+    const context = element.getContext("2d", { willReadFrequently: true });
+    if (!context) throw new Error("The browser did not provide a 2D canvas context.");
+    const x = Math.min(element.width - 1, Math.max(0, Math.floor(element.width * xRatio)));
+    const y = Math.min(element.height - 1, Math.max(0, Math.floor(element.height * yRatio)));
+    return [...context.getImageData(x, y, 1, 1).data] as [number, number, number, number];
+  }, point);
+}
+
+export async function clickCanvas(page: Page, point: readonly [number, number]): Promise<void> {
+  const canvas = page.getByLabel("Your canvas");
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error("Artist canvas has no bounding box.");
+  await canvas.click({
+    position: { x: box.width * point[0], y: box.height * point[1] },
+  });
+}
+
 export async function drawCanvasStroke(
   page: Page,
   start: readonly [number, number] = [0.05, 0.07],
