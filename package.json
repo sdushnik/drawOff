@@ -12,8 +12,10 @@
   ],
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "test": "npm run test --workspaces --if-present",
+    "test": "npm run test:orchestration && npm run test --workspaces --if-present",
+    "test:orchestration": "node --test scripts/e2e-compose.test.mjs",
     "test:e2e": "npm run test:e2e --workspace frontend",
+    "test:e2e:compose": "node scripts/e2e-compose.mjs",
     "build": "npm run build --workspaces --if-present",
     "db:migrate": "npm run db:migrate --workspace @drawoff/backend",
     "smoke:container": "node scripts/container-smoke.mjs",
