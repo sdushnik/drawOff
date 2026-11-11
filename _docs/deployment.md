@@ -1,4 +1,4 @@
-# Single-container production deployment
+# Single-image deployment
 
 DrawOff builds and runs as one Docker image with one Node.js/Fastify process.
 The production frontend is a TanStack Start static SPA: the existing Lovable
@@ -7,11 +7,12 @@ emits fingerprinted browser assets. Fastify serves those files, owns `/health`
 and `/socket.io`, and returns the SPA shell for application routes such as
 `/room/ABC123`.
 
-There is no second frontend server, process supervisor, reverse proxy, or
-Docker Compose topology. The browser and Socket.IO use the same public origin.
-This work does not deploy to an external service and does not add AWS
-infrastructure or CI/CD automation. PostgreSQL is an optional external
-database; it is not installed or started inside the DrawOff image.
+There is no second frontend server, process supervisor, or reverse proxy. The
+browser and Socket.IO use the same public origin. The image can be run directly
+with SQLite or as the single application process in the local PostgreSQL
+Compose topology below. This work does not deploy to an external service and
+does not add AWS infrastructure, multi-instance coordination, or CI/CD
+automation. PostgreSQL is never installed inside the DrawOff image.
 
 ## Build the image
 
@@ -30,7 +31,179 @@ caches are excluded. Native `better-sqlite3` dependencies are installed in the
 same Node 20 Debian image family as the runtime. The runtime also includes the
 `pg` client driver, but no PostgreSQL server binaries.
 
-## Start and verify
+## Local PostgreSQL 18 Compose deployment
+
+The root `compose.yaml` uses Docker Compose v2 to run three ordered services:
+
+1. `postgres` runs exactly `postgres:18-alpine`, stores PostgreSQL's versioned
+   data layout in the `postgres-data` named volume, and must pass a bounded
+   `pg_isready` health check.
+2. `migration` uses the same DrawOff image as the application and runs the
+   compiled `dist/database/migrate.js` entry point only after PostgreSQL is
+   healthy. It is safe to run again against an up-to-date database.
+3. `app` uses that DrawOff image and starts only after `migration` exits zero.
+   Its bounded health check requires an exact `{"status":"ready"}` response
+   before Compose considers it healthy.
+
+Only the application is published, at <http://localhost:8080>. PostgreSQL has
+no host port in the default configuration. The SPA, fingerprinted assets,
+`/health`, and `/socket.io` are all served from that one application origin;
+there is no proxy or second long-running DrawOff process.
+
+The Compose defaults (`drawoff_local`, `local-only-password`, and `drawoff`)
+are disposable local credentials, not production secrets. Override them in
+the shell or an untracked `.env` file; do not commit that file. When values are
+changed, set the raw PostgreSQL variables and a matching URL whose username,
+password, and database components are percent-encoded when necessary:
+
+```sh
+POSTGRES_USER=drawoff_dev \
+POSTGRES_PASSWORD='replace-this-local-password' \
+POSTGRES_DB=drawoff_dev \
+DRAWOFF_DATABASE_URL='postgresql://drawoff_dev:replace-this-local-password@postgres:5432/drawoff_dev' \
+  docker compose up --detach --wait --wait-timeout 180
+```
+
+`DRAWOFF_DATABASE_URL` is passed only to the server-side migration and app
+containers. Never put database values in a `VITE_*` variable.
+
+### Validate, build, and start
+
+From the repository root, validate the resolved configuration, build the
+existing production image, and start the ordered stack:
+
+```sh
+docker compose config --quiet
+docker compose build app
+docker compose up --detach --wait --wait-timeout 180
+```
+
+The startup command fails instead of reporting a healthy application if
+PostgreSQL exhausts its health-check retries or migration exits nonzero.
+Fastify is not started until the successful migration container is recorded.
+Inspect the ordering and current health with:
+
+```sh
+docker compose ps --all
+docker compose logs --tail 100 postgres migration app
+```
+
+Verify readiness and force Socket.IO to use WebSocket transport with no
+polling fallback:
+
+```sh
+curl --fail --silent http://localhost:8080/health
+CONTAINER_SMOKE_ORIGIN=http://127.0.0.1:8080 npm run verify:compose:websocket
+```
+
+The expected HTTP body is exactly `{"status":"ready"}`. The WebSocket check
+fails if `/socket.io` is intercepted by the SPA, the upgrade is unavailable,
+or Socket.IO selects any transport other than `websocket`.
+
+Run the migration again to prove that an up-to-date database is accepted
+without resetting existing data:
+
+```sh
+docker compose run --rm migration
+```
+
+### PostgreSQL 18 contract test
+
+The optional `compose.postgres-test.yaml` publishes PostgreSQL only on the
+loopback interface and only when explicitly included. Start the stack with
+that verification override, create a disposable guarded test database, and
+run the same shared persistence/restart/rematch/expiry/idempotency/concurrency/
+privacy contract used by the PostgreSQL adapter:
+
+```sh
+docker compose -f compose.yaml -f compose.postgres-test.yaml \
+  up --detach --wait --wait-timeout 180
+docker compose exec -T postgres \
+  dropdb --if-exists --force --username drawoff_local drawoff_test_compose
+docker compose exec -T postgres \
+  createdb --username drawoff_local drawoff_test_compose
+POSTGRES_TEST_DATABASE_URL='postgresql://drawoff_local:local-only-password@127.0.0.1:55432/drawoff_test_compose' \
+  npm run test:postgres --workspace @drawoff/backend
+```
+
+The default `compose.yaml` still exposes no PostgreSQL port. Set
+`POSTGRES_TEST_PORT` if port `55432` is unavailable, and use the same port in
+`POSTGRES_TEST_DATABASE_URL`. The test database name must continue to begin
+with `drawoff_test`; the test harness rejects other targets before its
+destructive schema reset.
+
+### Persistence and Chromium verification
+
+With the default stack healthy, run the persistence check:
+
+```sh
+CONTAINER_SMOKE_ORIGIN=http://127.0.0.1:8080 npm run verify:compose:persistence
+```
+
+It creates a room over a forced WebSocket connection, retains its session,
+force-recreates the PostgreSQL, migration, and application containers without
+removing the named volume, waits for the ordered stack to become healthy, and
+resumes the same room. A successful result proves both that migrations ran
+during recreation and that they did not erase the persisted room.
+
+Install Chromium once for the locked workspace dependencies, then run the
+existing real-browser multiplayer smoke against the same origin:
+
+```sh
+npm ci
+npm exec --workspace frontend -- playwright install chromium
+CONTAINER_SMOKE_ORIGIN=http://127.0.0.1:8080 npm run smoke:container
+```
+
+That smoke checks `/health`, forced WebSocket transport, static assets, direct
+SPA invite navigation and refresh, room creation, an isolated second browser
+context joining, and the shared two-player lobby.
+
+Run the repository checks and inspect application logs for accidental URL or
+local-password output:
+
+```sh
+npm test
+npm run build
+docker compose logs --tail 100 app migration
+if docker compose logs app migration 2>&1 | grep -E 'postgresql://|local-only-password'
+then
+  echo 'database credentials appeared in application logs' >&2
+  exit 1
+else
+  echo 'application logs are credential-safe'
+fi
+```
+
+### Stop, restart, and clean up
+
+Stop and remove the Compose containers and network while retaining PostgreSQL
+data in the named volume:
+
+```sh
+docker compose down
+```
+
+Restart against that retained data and wait for PostgreSQL, a fresh successful
+migration run, and Fastify readiness:
+
+```sh
+docker compose up --detach --wait --wait-timeout 180
+```
+
+Only when the local database is intentionally disposable, remove the named
+volume as a separate, explicitly destructive action:
+
+```sh
+docker compose down --volumes
+```
+
+This Compose topology is a local deployment of one DrawOff application
+process. It does not complete issue #29's production provisioning, backups,
+monitoring, rollout, recovery, secret management, or multi-instance runtime
+coordination.
+
+## Direct SQLite container start and verification
 
 Create the persistent SQLite volume once:
 

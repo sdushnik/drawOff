@@ -1,0 +1,57 @@
+name: drawoff
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-drawoff}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-only-password}
+      POSTGRES_USER: ${POSTGRES_USER:-drawoff_local}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready --username "$${POSTGRES_USER}" --dbname "$${POSTGRES_DB}"
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    volumes:
+      - postgres-data:/var/lib/postgresql
+
+  migration:
+    image: ${DRAWOFF_IMAGE:-drawoff:compose}
+    command: ["node", "dist/database/migrate.js"]
+    environment:
+      DATABASE_URL: ${DRAWOFF_DATABASE_URL:-postgresql://drawoff_local:local-only-password@postgres:5432/drawoff}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    image: ${DRAWOFF_IMAGE:-drawoff:compose}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: ${DRAWOFF_DATABASE_URL:-postgresql://drawoff_local:local-only-password@postgres:5432/drawoff}
+      FRONTEND_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
+    depends_on:
+      migration:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3000/health').then(async(response)=>{if(response.status!==200||await response.text()!=='{"status":"ready"}')process.exit(1)}).catch(()=>process.exit(1))
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    ports:
+      - "8080:3000"
+
+volumes:
+  postgres-data:

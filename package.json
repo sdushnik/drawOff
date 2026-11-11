@@ -16,7 +16,9 @@
     "test:e2e": "npm run test:e2e --workspace frontend",
     "build": "npm run build --workspaces --if-present",
     "db:migrate": "npm run db:migrate --workspace @drawoff/backend",
-    "smoke:container": "node scripts/container-smoke.mjs"
+    "smoke:container": "node scripts/container-smoke.mjs",
+    "verify:compose:websocket": "node scripts/container-smoke.mjs --websocket-only",
+    "verify:compose:persistence": "node scripts/compose-persistence.mjs"
   },
   "dependencies": {
     "@openai/codex-sdk": "^0.166.0"

@@ -50,6 +50,11 @@ async function main() {
   await verifyHealth();
   await verifyWebSocket();
 
+  if (process.argv.includes("--websocket-only")) {
+    console.log(`Health and forced WebSocket checks passed through ${publicOrigin}.`);
+    return;
+  }
+
   const browser = await chromium.launch({ headless: true });
   const hostContext = await browser.newContext();
   const guestContext = await browser.newContext();

@@ -8,6 +8,7 @@ Fastify, and Socket.IO backend entry point.
 
 - Node.js 20 or newer
 - npm 10 or newer
+- Docker Engine with Docker Compose v2 for container workflows
 
 ## Install
 
@@ -73,6 +74,34 @@ The test command refuses PostgreSQL databases whose name does not begin with
 `drawoff_test`. The complete standalone PostgreSQL 16 container workflow and
 credential-safe deployment examples are in
 [`_docs/deployment.md`](_docs/deployment.md).
+
+## Local PostgreSQL Compose stack
+
+The root [`compose.yaml`](compose.yaml) builds the existing DrawOff production
+image, starts `postgres:18-alpine` with named-volume storage, runs the compiled
+Kysely migrations as a one-shot service, and starts Fastify only after those
+migrations succeed. The complete SPA, `/health`, and Socket.IO endpoint are
+then available from <http://localhost:8080>.
+
+The checked-in database values are local-only defaults. Validate, build, and
+start the stack from the repository root:
+
+```sh
+docker compose config --quiet
+docker compose build app
+docker compose up --detach --wait --wait-timeout 180
+curl --fail --silent http://localhost:8080/health
+npm run verify:compose:websocket
+npm run verify:compose:persistence
+CONTAINER_SMOKE_ORIGIN=http://127.0.0.1:8080 npm run smoke:container
+```
+
+`docker compose down` removes the containers and network but retains the
+PostgreSQL volume. `docker compose down --volumes` is the explicit destructive
+cleanup command. See [`_docs/deployment.md`](_docs/deployment.md) for exact
+PostgreSQL contract-test, status, log, restart, credential-override, and cleanup
+commands. This is a local single-application-process topology; the production
+and multi-instance work tracked by issue #29 remains out of scope.
 
 ## Test
 

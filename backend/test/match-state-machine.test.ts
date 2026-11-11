@@ -95,6 +95,16 @@ function expectRoomError(
   );
 }
 
+function structuredStrings(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap(structuredStrings);
+  if (typeof value !== "object" || value === null) return [];
+  return Object.entries(value).flatMap(([key, nested]) => [
+    key,
+    ...structuredStrings(nested),
+  ]);
+}
+
 function advanceToWordSelection(fixture: ReturnType<typeof createFixture>): void {
   fixture.start();
   fixture.setTime(fixture.now + MATCH_PHASE_DURATIONS_MS.ROLE_REVEAL);
@@ -666,8 +676,33 @@ test("drawing locks each canvas at its server deadline and preserves frozen anon
   assert.equal(frozenJudgeView.liveCanvases?.[1]?.canvas.actions.length, 1);
   assert.deepEqual(frozenJudgeView.liveCanvases?.[2]?.canvas, { actions: [], rev: 0, resets: 0 });
   assert.equal(frozenJudgeView.match?.artistIds.length, 3);
+  const anonymousArtistIds = [1, 2, 3].map(
+    (index) => `anonymous-player-${fixture.host.roomCode}-0-${index}`,
+  );
+  assert.deepEqual(
+    frozenJudgeView.players.map(({ id, name }) => ({ id, name })),
+    [
+      { id: fixture.host.playerId, name: "Player 0" },
+      ...anonymousArtistIds.map((id, index) => ({
+        id,
+        name: `Anonymous player ${index + 1}`,
+      })),
+    ],
+  );
+  assert.equal(frozenJudgeView.hostId, fixture.host.playerId);
+  assert.equal(frozenJudgeView.match?.judgeId, fixture.host.playerId);
+  assert.deepEqual(frozenJudgeView.match?.artistIds, anonymousArtistIds);
+  assert.deepEqual(frozenJudgeView.match?.order, [
+    fixture.host.playerId,
+    ...anonymousArtistIds,
+  ]);
+  assert.deepEqual(
+    Object.keys(frozenJudgeView.match?.scores ?? {}),
+    [fixture.host.playerId, ...anonymousArtistIds],
+  );
+  const exposedStructuredStrings = structuredStrings(frozenJudgeView);
   for (const artist of [firstArtist, secondArtist, thirdArtist]) {
-    assert.equal(JSON.stringify(frozenJudgeView).includes(artist.playerId), false);
+    assert.equal(exposedStructuredStrings.includes(artist.playerId), false);
   }
   assert.equal(fixture.view(thirdArtist).myCanvas?.locked, true);
   expectRoomError(
