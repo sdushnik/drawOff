@@ -61,3 +61,18 @@ When adding the backend workspace, keep documented root-level install, developme
 - Drawing uses ordered operations (stroke append, fill, clear, undo); bucket fill is a single operation replayed by the pure `floodFill`, never a per-pixel network event.
 - TypeScript is strict (`noUncheckedIndexedAccess`, `noPropertyAccessFromIndexSignature`); keep the configuration strict rather than loosening it to accommodate code.
 - Tests live next to the code (`*.test.ts[x]`) and run with `cd frontend && npm test`.
+
+## Context Efficiency Rules
+
+- Read only the documentation relevant to the current issue.
+- Never reread the entire repository unless necessary.
+- Reuse the PM grooming output as the implementation specification.
+- Do not repeat research already completed by another role.
+- Inspect only relevant source files and their dependencies.
+- Avoid unrelated refactoring.
+- Run targeted tests first.
+- Run the full test suite when required by the task or QA criteria.
+- Do not repeat successful tests unless code changes invalidate them.
+- Keep agent handoff reports concise.
+- Never skip PM, Engineer, or QA stages.
+- Preserve independent QA verification.

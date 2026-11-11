@@ -55,3 +55,35 @@ and QA as subagents. It does not groom, implement or test itself.
 
 - Mark the corresponding backlog task or GitHub issue complete only after implementation and verification are done.
 - Summarize what changed, the tests/checks run, and the commit or issue status. Call out any remaining limitations explicitly.
+
+## Context Handoff
+
+Each role must produce a concise handoff for the next role.
+
+### PM Handoff
+- Groomed issue
+- Goal
+- Acceptance criteria
+- Out of scope
+- Constraints
+- Relevant documentation and files
+- Related E2E issue references
+
+### Engineer Handoff
+- Implementation summary
+- Files changed
+- Tests executed and results
+- Commit hash
+- Known limitations
+
+### QA Handoff
+- Every acceptance criterion checked individually
+- PASS or FAIL for each criterion
+- Exact test commands and results
+- Missing test coverage
+- Overall PASS or FAIL verdict
+
+The next role must use the previous handoff
+instead of repeating completed analysis.
+
+Do not skip independent verification.
