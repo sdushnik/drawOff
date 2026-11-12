@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import type { Cycles, DrawOp, Session } from "@drawoff/contracts";
+import type { Cycles, DrawOp, PlayerView, Session } from "@drawoff/contracts";
 import { createSocketGameService } from "../src/services/socketGameService";
 
 type ServiceMethod =
@@ -45,6 +45,31 @@ export async function storedSession(page: Page): Promise<Session> {
     const raw = sessionStorage.getItem(`drawoff:session:${code}`);
     if (!raw) throw new Error("The browser session was not stored.");
     return JSON.parse(raw) as Session;
+  });
+}
+
+export async function currentView(page: Page): Promise<PlayerView> {
+  const session = await storedSession(page);
+  const service = createSocketGameService(serverUrl());
+  return new Promise((resolve, reject) => {
+    let unsubscribe = () => undefined;
+    const timer = setTimeout(() => {
+      unsubscribe();
+      reject(new Error("Timed out waiting for the current player view."));
+    }, 5_000);
+    unsubscribe = service.subscribe(
+      session,
+      (view) => {
+        clearTimeout(timer);
+        unsubscribe();
+        resolve(view);
+      },
+      (error) => {
+        clearTimeout(timer);
+        unsubscribe();
+        reject(error);
+      },
+    );
   });
 }
 
