@@ -2,88 +2,79 @@
 
 ## Roles
 
-- PM - grooms a task before anyone implements it, follows _docs/team/pm.md
-- Engineer - implements one groomed task, follows _docs/team/software-engineer.md
-- QA - checks the result against the acceptance criteria, follows _docs/team/qa-engineer.md
+- PM - the main session grooms the current issue using `_docs/team/pm.md`.
+- Engineer - after grooming, the main session implements the same issue using
+  `_docs/team/software-engineer.md`.
+- QA - exactly one independent subagent verifies the finished work using
+  `_docs/team/qa-engineer.md`.
 
-## Orchestrator
+## One-turn boundary
 
-The main session is the orchestrator. It launches the PM, the engineer
-and QA as subagents. It does not groom, implement or test itself.
+Process at most one GitHub Issue per user turn. After the issue is closed or a
+genuine blocker is reported, stop and return control to the user. Do not select
+or begin another backlog issue automatically.
 
 ## Lifecycle
 
-1. Select the next open issue whose documented prerequisite issues are complete; prefer the earliest backlog issue among those ready to start.
-2. PM grooms the issue.
-3. After PM grooming is complete, the Engineer implements that issue.
-4. After the Engineer finishes and reports the implementation, QA verifies it.
-5. On FAIL, send QA's comment to the Engineer, who corrects the implementation; then QA verifies it again.
-6. On PASS, the orchestrator closes the issue.
-7. Repeat until the backlog is empty or every remaining issue is blocked by an incomplete prerequisite.
+1. Select the requested issue, or the earliest ready issue when the user asks
+   for the next one, and confirm its prerequisites are complete.
+2. The main session acts as PM and grooms the issue before editing files.
+3. The main session acts as Engineer and implements only the groomed scope.
+4. The Engineer posts a concise implementation comment and leaves the issue
+   open.
+5. Launch exactly one independent QA subagent after Engineering finishes.
+6. QA checks every criterion and posts PASS or FAIL without changing files.
+7. On FAIL, the main session corrects the same issue and returns it to the same
+   QA subagent. Do not create another QA agent for the retry.
+8. On PASS, the main session pushes the focused commit when authorized, posts
+   the final evidence, closes the issue, and stops the turn.
 
-## Rules
+## Grooming
 
-- Do not skip step 2
-- Do not start the Engineer until PM grooming is complete; do not start QA until the Engineer reports completion. PM → Engineer → QA is a strictly sequential handoff, not parallel work.
-- Before selecting an issue, inspect its documented dependencies. Do not start an issue while a required prerequisite is incomplete; if no issue is ready, report the blockers rather than skipping dependencies.
-- The engineer does not close the issue
-- QA does not fix the code, only outputs PASS or FAIL
-- QA's issue comment must check every Acceptance Criterion individually, state PASS or FAIL for each, and include the exact tests/commands run and their results. QA outputs the overall PASS/FAIL verdict only after checking every criterion against the running implementation.
-- The orchestrator closes the issue only after QA outputs PASS
+- Default to 2-4 representative, user-visible, checkable acceptance criteria.
+- Add an edge case only when it is essential to the issue goal or addresses a
+  documented privacy, authorization, durability, or data-loss risk.
+- Record goal, acceptance criteria, out of scope, and constraints without
+  rewriting background already present in linked specifications.
+- Do not automatically create follow-up issues for out-of-scope observations.
+  Note them concisely and create a follow-up only when the user requests it or
+  the current issue cannot be completed safely without tracking it.
+- Resolve ambiguity or product conflicts before implementation.
 
-## Work one task at a time
+## Implement one issue
 
-- Choose one task from `_docs/tasks.md` or one GitHub issue and work only on its scope.
-- Before starting, read the task's goal and description, the relevant product behavior in `_docs/plan.md`, and the applicable acceptance criteria.
-- If the task is ambiguous or conflicts with the plan, resolve the scope before implementation; do not silently make product decisions.
-- Avoid bundling unrelated cleanup or starting another task before the current task is complete.
+- Make the smallest complete change that satisfies the groomed criteria.
+- Do not bundle cleanup or behavior belonging to another issue.
+- Add or update focused tests for changed behavior.
+- Inspect the diff for unrelated changes, accidental secrets, and user-owned
+  work before committing.
+- Use one focused commit with a concise message and the issue number. Never
+  rewrite published history.
 
-## Implement and verify
+## Verification policy
 
-- Make the smallest complete change that satisfies the task and preserves confirmed product decisions.
-- Add or update focused tests for changed behavior. Run the relevant tests and build checks before considering the task done.
-- Check the diff for unrelated changes, errors, and accidental secrets. Report any validation that could not be completed.
-- Update the specification or other directly related documentation when behavior or implementation guidance changes.
+- Engineering runs the smallest targeted checks that prove the change before
+  handing off.
+- Independent QA reruns the focused verification once against the committed
+  implementation and checks every acceptance criterion.
+- Do not rerun successful unaffected checks merely to fill a report.
+- Run full unit, production-build, or Compose suites only when required by the
+  issue, when shared infrastructure changes, after each five completed
+  `e2e-test` issues since the previous milestone, or at final backlog
+  verification.
+- For successful commands, report the command and a short result such as test
+  counts. Preserve full logs and failure artifacts only when a command fails.
 
-## Commit regularly
+## Concise handoffs
 
-- Commit each completed task in a focused commit; do not wait to accumulate several unrelated tasks.
-- Before committing, confirm the task's acceptance criteria are met, required checks pass, and only intended files are included.
-- Use a concise commit message that describes the change. Do not commit credentials, secrets, or local environment files.
+Do not restate the issue body. Provide only information needed by the next
+stage:
 
-## Complete the task
+- PM: changed or clarified criteria, scope boundaries, and material decisions.
+- Engineer: changed files, focused command results, commit hash, and blockers.
+- QA: criterion-by-criterion PASS/FAIL, focused command result, and overall
+  verdict.
 
-- Mark the corresponding backlog task or GitHub issue complete only after implementation and verification are done.
-- Summarize what changed, the tests/checks run, and the commit or issue status. Call out any remaining limitations explicitly.
-
-## Context Handoff
-
-Each role must produce a concise handoff for the next role.
-
-### PM Handoff
-- Groomed issue
-- Goal
-- Acceptance criteria
-- Out of scope
-- Constraints
-- Relevant documentation and files
-- Related E2E issue references
-
-### Engineer Handoff
-- Implementation summary
-- Files changed
-- Tests executed and results
-- Commit hash
-- Known limitations
-
-### QA Handoff
-- Every acceptance criterion checked individually
-- PASS or FAIL for each criterion
-- Exact test commands and results
-- Missing test coverage
-- Overall PASS or FAIL verdict
-
-The next role must use the previous handoff
-instead of repeating completed analysis.
-
-Do not skip independent verification.
+The next stage uses the issue and previous handoff instead of repeating the
+same discovery. Independent QA still verifies the running implementation and
+does not accept an Engineer claim as evidence by itself.

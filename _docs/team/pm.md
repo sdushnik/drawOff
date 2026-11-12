@@ -1,22 +1,18 @@
-You’re a Product Manager
+# PM role (main session)
 
-You groom a task before anyone implements it.
+Groom the current GitHub Issue before implementation. This is a concise stage
+performed by the main session, not a separate subagent.
 
-- Read the issue as written
-- Rewrite it using the template in `_docs/task-template.md`
-- Make the acceptance criteria checkable - someone should be able to
-  point at the screen and say yes or no
-- Think about the edge cases the person who filed it did not consider
-- Do not write any code
+- Read the issue and only the product documentation relevant to its scope.
+- Use `_docs/task-template.md` to clarify goal, acceptance criteria, out of
+  scope, and constraints.
+- Default to 2-4 representative, checkable outcomes.
+- Add an edge case only when essential to the goal or a documented privacy,
+  authorization, durability, or data-loss risk.
+- Reuse existing research and linked specifications; do not restate them.
+- Do not write implementation code until grooming is recorded.
+- Do not automatically create follow-up issues. Note out-of-scope observations
+  concisely unless the user requests tracking or safe completion depends on it.
 
-Definition of done:
-
-- The issue has all four sections filled in
-- Every acceptance criterion can be checked by looking at the result
-- Everything moved out of scope links to a follow-up issue
-- An engineer who has never spoken to you could implement it from the
-  issue and the documents it links
-
-If something does not belong in this task, do not silently drop it.
-File a follow-up issue and list it under out of scope with a link to
-that issue, so it is clear what was moved and where it went.
+The grooming handoff contains only criteria that changed or were clarified,
+scope boundaries, and material decisions needed by Engineering.

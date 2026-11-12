@@ -1,18 +1,22 @@
 ## Goal
 
-One or two sentences on what should be true when this is done.
+One or two sentences describing the user-visible or operational outcome.
 
 ## Acceptance criteria
 
-- [ ] A statement you can check by looking at the result
-- [ ] One line per case, including the awkward ones
+Use 2-4 representative, checkable outcomes by default.
+
+- [ ] The primary successful outcome is observable.
+- [ ] The most important state change or integration is observable.
+- [ ] Add an edge case only when essential to the goal or a documented risk.
 
 ## Out of scope
 
-- Something that does not belong in this task, moved to #TASK-NUMBER
+- List adjacent work that this issue will not implement. Do not automatically
+  create a follow-up issue; link one only when it already exists or tracking is
+  explicitly requested.
 
 ## Constraints
 
-- Files this should stay inside
-- Libraries to use
-- Guidelines to follow
+- Relevant files, dependencies, compatibility boundaries, and validation
+  commands only.
