@@ -28,6 +28,7 @@ describe("JudgingGallery", () => {
     expect(screen.getByRole("img", { name: "Drawing 1" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Drawing 2" })).toBeInTheDocument();
     expect(screen.getByLabelText("Drawing 1 rating slider")).toBeInTheDocument();
+    expect(screen.getByRole("slider", { name: "Drawing 1 rating slider" })).toBeInTheDocument();
     expect(screen.getByRole("spinbutton", { name: "Drawing 1 rating" })).toBeInTheDocument();
     expect(screen.getByRole("spinbutton", { name: "Drawing 2 rating" })).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("Artist Alice");
@@ -35,12 +36,16 @@ describe("JudgingGallery", () => {
     expect(screen.getByText("0 of 2 rated")).toBeInTheDocument();
   });
 
-  it("does not count empty, fractional, or out-of-range values as rated", () => {
+  it("does not count empty, non-numeric, fractional, or out-of-range values as rated", () => {
     const onSubmit = vi.fn();
     render(<JudgingGallery prompt="owl" gallery={gallery} overtime={false} onSubmit={onSubmit} />);
 
     const submit = screen.getByRole("button", { name: /rate 2 more/i });
     expect(submit).toBeDisabled();
+
+    rate("Drawing 1", "not a number");
+    expect(screen.getByText("Whole number from 0 to 100.")).toBeInTheDocument();
+    expect(screen.getByText("0 of 2 rated")).toBeInTheDocument();
 
     rate("Drawing 1", "1.5");
     expect(screen.getByText("Whole number from 0 to 100.")).toBeInTheDocument();
@@ -115,8 +120,8 @@ describe("JudgingGallery", () => {
     );
 
     expect(screen.getByText("2 of 2 rated")).toBeInTheDocument();
-    expect(screen.getByLabelText("Drawing 1 rating")).toHaveValue(0);
-    expect(screen.getByLabelText("Drawing 2 rating")).toHaveValue(100);
+    expect(screen.getByLabelText("Drawing 1 rating")).toHaveValue("0");
+    expect(screen.getByLabelText("Drawing 2 rating")).toHaveValue("100");
 
     fireEvent.click(screen.getByRole("button", { name: /submit all ratings/i }));
     expect(onSubmit).toHaveBeenCalledTimes(2);

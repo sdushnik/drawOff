@@ -482,6 +482,11 @@ export class RoomService {
     room.notice = notice;
   }
 
+  setNotice(codeOrLink: string, notice: string): void {
+    const code = normalizeRoomCode(codeOrLink);
+    this.findRoom(code, this.readClock()).notice = notice;
+  }
+
   getLobbyView(session: Session): PlayerView {
     const { room, player } = this.authenticate(session);
     const schedule = room.matchSchedule;

@@ -96,13 +96,14 @@ export function JudgingGallery({ prompt, gallery, overtime, onSubmit }: Props) {
                     className={cn(!valid && "opacity-60")}
                   />
                   <Input
-                    type="number"
+                    type="text"
+                    role="spinbutton"
                     aria-label={`${g.label} rating`}
                     aria-describedby={invalid ? `${g.label}-rating-error` : undefined}
                     inputMode="numeric"
-                    min={0}
-                    max={100}
-                    step={1}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={valid ? parsed[g.label] : undefined}
                     placeholder="0–100"
                     value={value}
                     onChange={(e) => setRatings((r) => ({ ...r, [g.label]: e.target.value }))}

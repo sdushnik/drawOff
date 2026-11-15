@@ -605,6 +605,49 @@ test("drawing lasts 75 seconds and ends immediately when every Artist submits", 
   assert.ok(fixture.view().liveCanvases?.every(({ locked }) => locked));
 });
 
+test("judging uses the scalable deadline and accepts ratings during overtime", () => {
+  const fixture = createFixture(5);
+  advanceToJudging(fixture);
+  const judging = fixture.view();
+  assert.equal(judging.deadline! - judging.serverNow, 60_000);
+  assert.equal(judging.judgingOvertime, false);
+  assert.equal(fixture.activeTimers.size, 1);
+
+  fixture.setTime(judging.deadline!);
+  fixture.machine.tick();
+  const overtime = fixture.view();
+  assert.equal(overtime.phase, "JUDGING");
+  assert.equal(overtime.judgingOvertime, true);
+  assert.equal(
+    overtime.deadline! - overtime.serverNow,
+    MATCH_PHASE_DURATIONS_MS.JUDGE_GRACE,
+  );
+
+  submitRatings(fixture, fixture.host, 42);
+  assert.equal(fixture.view().phase, "ROUND_RESULT");
+});
+
+test("expired judging overtime replays the same round without points", () => {
+  const fixture = createFixture();
+  advanceToJudging(fixture);
+  const originalJudge = fixture.view().match!.judgeId;
+  const judgingDeadline = fixture.view().deadline!;
+
+  fixture.setTime(judgingDeadline);
+  fixture.machine.tick();
+  const overtimeDeadline = fixture.view().deadline!;
+  assert.equal(fixture.view().judgingOvertime, true);
+
+  fixture.setTime(overtimeDeadline);
+  fixture.machine.tick();
+  const replay = fixture.view();
+  assert.equal(replay.phase, "ROLE_REVEAL");
+  assert.equal(replay.match!.roundIndex, 0);
+  assert.equal(replay.match!.judgeId, originalJudge);
+  assert.deepEqual(Object.values(replay.match!.scores), [0, 0, 0]);
+  assert.match(replay.notice ?? "", /unscored round is being replayed/i);
+});
+
 test("drawing locks each canvas at its server deadline and preserves frozen anonymous snapshots", () => {
   const fixture = createFixture(4);
   advanceToWordSelection(fixture);

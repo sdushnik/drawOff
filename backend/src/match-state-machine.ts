@@ -25,6 +25,7 @@ export const MATCH_PHASE_DURATIONS_MS = {
   ROUND_RESULT: 12_000,
   JUDGE_MINIMUM: 45_000,
   JUDGE_PER_ARTIST: 15_000,
+  JUDGE_GRACE: 15_000,
 } as const;
 export const RECONNECT_WINDOW_MS = 30_000;
 
@@ -53,6 +54,7 @@ interface MatchProgress {
   scores: Record<string, number>;
   judgeRatings: Record<string, number> | null;
   roundResult: RoundResult | null;
+  judgingOvertime: boolean;
   pause: {
     playerId: string;
     until: number;
@@ -94,6 +96,7 @@ export interface DurableMatchProgress {
   scores: Record<string, number>;
   judgeRatings: Record<string, number> | null;
   roundResult: RoundResult | null;
+  judgingOvertime?: boolean;
   pause: {
     playerId: string;
     until: number;
@@ -181,6 +184,7 @@ export class MatchStateMachine {
       scores: { ...progress.scores },
       judgeRatings: progress.judgeRatings ? { ...progress.judgeRatings } : null,
       roundResult: progress.roundResult,
+      judgingOvertime: progress.judgingOvertime,
       pause: progress.pause ? { ...progress.pause } : null,
       generation: progress.generation,
     }));
@@ -245,6 +249,7 @@ export class MatchStateMachine {
         scores: { ...state.scores },
         judgeRatings: state.judgeRatings ? { ...state.judgeRatings } : null,
         roundResult: state.roundResult,
+        judgingOvertime: state.judgingOvertime ?? false,
         pause: state.pause ? { ...state.pause } : null,
         generation: state.generation,
         timer: null,
@@ -293,6 +298,7 @@ export class MatchStateMachine {
       scores: Object.fromEntries(room.matchSchedule.order.map((playerId) => [playerId, 0])),
       judgeRatings: null,
       roundResult: null,
+      judgingOvertime: false,
       pause: null,
       generation: 0,
       timer: null,
@@ -733,6 +739,7 @@ export class MatchStateMachine {
           ? progress.roundResult
           : null,
       finalResult,
+      judgingOvertime: progress.phase === "JUDGING" && progress.judgingOvertime,
       match: {
         roundIndex: progress.roundIndex,
         totalRounds: room.matchSchedule.totalRounds,
@@ -915,6 +922,32 @@ export class MatchStateMachine {
         break;
       }
       case "JUDGING":
+        if (!progress.judgingOvertime) {
+          progress.judgingOvertime = true;
+          this.transition(
+            roomCode,
+            progress,
+            "JUDGING",
+            this.phaseDurations.JUDGE_GRACE,
+            progress.deadline,
+          );
+        } else {
+          progress.judgingOvertime = false;
+          progress.judgeRatings = null;
+          progress.roundResult = null;
+          this.rooms.setNotice(
+            roomCode,
+            "The Judge ran out of time, so the unscored round is being replayed.",
+          );
+          this.transition(
+            roomCode,
+            progress,
+            "ROLE_REVEAL",
+            this.phaseDurations.ROLE_REVEAL,
+            progress.deadline,
+          );
+        }
+        break;
       case "FINAL_RESULT":
         break;
     }
@@ -941,6 +974,7 @@ export class MatchStateMachine {
       phase === "ROLE_REVEAL" ||
       phase === "WORD_SELECTION" ||
       phase === "DRAWING" ||
+      phase === "JUDGING" ||
       phase === "ROUND_RESULT"
     ) {
       this.scheduleTimer(roomCode, progress);
@@ -966,6 +1000,7 @@ export class MatchStateMachine {
       this.phaseDurations.JUDGE_MINIMUM,
       this.phaseDurations.JUDGE_PER_ARTIST * artistCount,
     );
+    progress.judgingOvertime = false;
     this.transition(roomCode, progress, "JUDGING", judgingDuration, startedAt);
   }
 

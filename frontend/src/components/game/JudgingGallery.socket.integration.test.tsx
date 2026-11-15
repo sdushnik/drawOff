@@ -87,8 +87,8 @@ describe("JudgingGallery Socket.IO integration", () => {
       await waitFor(() =>
         expect(screen.getByRole("button", { name: /submit all ratings/i })).toBeEnabled(),
       );
-      expect(screen.getByLabelText("Drawing 1 rating")).toHaveValue(0);
-      expect(screen.getByLabelText("Drawing 2 rating")).toHaveValue(100);
+      expect(screen.getByLabelText("Drawing 1 rating")).toHaveValue("0");
+      expect(screen.getByLabelText("Drawing 2 rating")).toHaveValue("100");
 
       fireEvent.click(screen.getByRole("button", { name: /submit all ratings/i }));
       await waitFor(() => expect(requests).toHaveLength(2));
