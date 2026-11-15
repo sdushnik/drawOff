@@ -135,7 +135,11 @@ export function ArtistBoard({ initial, locked, timeUp, onSend, onSubmit }: Props
       emit({ type: "fill", id: newId(), x, y, color });
       return;
     }
-    e.currentTarget.setPointerCapture?.(e.pointerId);
+    try {
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+    } catch {
+      // Ignore pointer capture errors in simulated or synthetic event environments
+    }
     const id = newId();
     activeStroke.current = id;
     lastPoint.current = [x, y];
