@@ -26,7 +26,10 @@ test("a required browser timing out cancels the incomplete match without a winne
   await expect(missing!.page.getByLabel("Your canvas")).toBeVisible();
 
   await missing!.context.close();
-  await expect(host!.page.getByRole("alertdialog", { name: "Game paused" })).toBeVisible();
+  const pauseDialog = host!.page.getByRole("alertdialog", { name: "Game paused" });
+  await expect(pauseDialog).toBeVisible();
+  await expect(pauseDialog).toContainText("Missing Artist");
+  await expect(pauseDialog).toContainText("Waiting for Missing Artist to reconnect");
   await expect(host!.page.getByRole("heading", { name: "Players" })).toBeVisible({
     timeout: 35_000,
   });
@@ -35,6 +38,101 @@ test("a required browser timing out cancels the incomplete match without a winne
   ).toContainText("No winner was declared");
   await expect(host!.page.getByText(/wins!|Co-winners!/)).toHaveCount(0);
   await expect(returning!.page.getByRole("heading", { name: "Players" })).toBeVisible();
+  await expect(host!.page.getByRole("button", { name: "Start match" })).toBeDisabled();
+});
+
+test("required Judge and Artist disconnects pause with preserved state and resume on reconnect, while submitted Artist disconnect does not pause", async ({
+  players: playerPool,
+}) => {
+  const [host, artist1, artist2] = (await Promise.all([
+    playerPool.create("Pause Judge"),
+    playerPool.create("Pause Artist One"),
+    playerPool.create("Pause Artist Two"),
+  ])) as [Player, Player, Player];
+
+  const code = await createRoom(host);
+  await joinRoom(artist1, code);
+  await joinRoom(artist2, code);
+
+  await host.page.getByRole("button", { name: "Start match" }).click();
+  await expect(host.page.getByRole("heading", { name: "Pick the word" })).toBeVisible();
+
+  // 1. Judge disconnect during active round pauses for all participants without leaking secrets
+  await host.context.setOffline(true);
+  for (const artist of [artist1, artist2]) {
+    const pauseOverlay = artist.page.getByRole("alertdialog", { name: "Game paused" });
+    await expect(pauseOverlay).toBeVisible();
+    await expect(pauseOverlay).toContainText("Pause Judge");
+    await expect(pauseOverlay).toContainText("Waiting for Pause Judge to reconnect");
+    await expect(pauseOverlay).not.toContainText("Drawing 1");
+    await expect(pauseOverlay).not.toContainText("Drawing 2");
+  }
+
+  // Judge reconnects within recovery window: pause dismisses and word selection resumes
+  await host.context.setOffline(false);
+  for (const player of [host, artist1, artist2]) {
+    await expect(player.page.getByRole("alertdialog", { name: "Game paused" })).toHaveCount(0);
+  }
+  await expect(host.page.getByRole("heading", { name: "Pick the word" })).toBeVisible();
+
+  // Judge selects prompt -> enters DRAWING phase
+  await host.page
+    .getByRole("group", { name: "Prompt suggestions" })
+    .getByRole("button")
+    .first()
+    .click();
+
+  await expect(artist1.page.getByLabel("Your canvas")).toBeVisible();
+  await expect(artist2.page.getByLabel("Your canvas")).toBeVisible();
+
+  // 2. Unsubmitted Artist draws ink, disconnects -> pauses room and preserves canvas state
+  await drawCanvasStroke(artist1.page);
+  await expect
+    .poll(async () => (await currentView(artist1.page)).myCanvas?.canvas.actions.length ?? 0)
+    .toBeGreaterThan(0);
+  const inkBefore = await canvasInkPixelCount(artist1.page.getByLabel("Your canvas"));
+  expect(inkBefore).toBeGreaterThan(50);
+
+  await artist1.context.setOffline(true);
+  for (const player of [host, artist2]) {
+    const pauseOverlay = player.page.getByRole("alertdialog", { name: "Game paused" });
+    await expect(pauseOverlay).toBeVisible();
+    await expect(pauseOverlay).toContainText("Pause Artist One");
+    await expect(pauseOverlay).not.toContainText("Drawing 1");
+  }
+
+  // Artist 1 reconnects within window: pause dismisses, canvas ink is preserved, submits canvas
+  await artist1.context.setOffline(false);
+  for (const player of [host, artist1, artist2]) {
+    await expect(player.page.getByRole("alertdialog", { name: "Game paused" })).toHaveCount(0);
+  }
+  await expect.poll(() => canvasInkPixelCount(artist1.page.getByLabel("Your canvas"))).toBeGreaterThan(50);
+
+  await artist1.page.getByRole("button", { name: "Submit early" }).click();
+  await expect(artist1.page.getByRole("button", { name: "Continue drawing" })).toBeVisible();
+
+  // 3. Submitted Artist disconnect does NOT pause the match for remaining players
+  await artist1.context.setOffline(true);
+  await expect(host.page.getByRole("alertdialog", { name: "Game paused" })).toHaveCount(0);
+  await expect(artist2.page.getByRole("alertdialog", { name: "Game paused" })).toHaveCount(0);
+
+  // Artist 2 finishes and submits drawing
+  await drawCanvasStroke(artist2.page);
+  await artist2.page.getByRole("button", { name: "Submit early" }).click();
+  await expect(artist2.page.getByRole("button", { name: "Continue drawing" })).toBeVisible();
+
+  // Reconnect Artist 1
+  await artist1.context.setOffline(false);
+
+  // Both artists submitted -> advances to JUDGING phase with submitted gallery intact
+  await expect.poll(async () => (await currentView(host.page)).phase).toBe("JUDGING");
+  const judgingView = await currentView(host.page);
+  expect(judgingView.gallery?.map(({ label }) => label)).toEqual(["Drawing 1", "Drawing 2"]);
+  for (const artist of [artist1, artist2]) {
+    await expect(
+      artist.page.getByText("Drawings are anonymous until the scores are locked in."),
+    ).toBeVisible();
+  }
 });
 
 test("host rematch returns everyone to the lobby, adjusts the roster, and starts a clean match with zero scores", async ({
