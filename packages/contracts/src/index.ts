@@ -172,6 +172,7 @@ export type Standing = z.infer<typeof standingSchema>;
 
 export const finalResultSchema = z
   .object({
+    startedAt: finiteNumberSchema,
     winners: z.array(nonEmptyStringSchema),
     standings: z.array(standingSchema),
     rounds: z.number().int().nonnegative(),

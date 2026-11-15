@@ -216,8 +216,10 @@ test("three players visibly rotate Judge once across a complete cycle", async ({
 
   await expect(host!.page.getByText("3 rounds · 1 cycle")).toBeVisible({ timeout: 20_000 });
   await expect(host!.page.getByRole("button", { name: "Play again" })).toBeVisible();
-  for (const player of players)
-    await expect(player.page.getByText(/wins!|Co-winners!/)).toBeVisible();
+  for (const player of players) {
+    await expect(player.page.getByRole("heading", { name: "Harper Host wins!" })).toBeVisible();
+    await expect(player.page.getByRole("heading", { name: "Co-winners!" })).toHaveCount(0);
+  }
   const expectedScores = new Map([
     ["Harper Host", "160"],
     ["Arlo Artist", "140"],
@@ -242,4 +244,80 @@ test("three players visibly rotate Judge once across a complete cycle", async ({
   const rematchView = await currentView(host!.page);
   expect(rematchView.match?.order).toHaveLength(4);
   expect(Object.values(rematchView.match?.scores ?? {})).toEqual([0, 0, 0, 0]);
+});
+
+test("equal cumulative totals reveal every co-winner and survive a final-results refresh", async ({
+  players: playerPool,
+}) => {
+  const players = await Promise.all([
+    playerPool.create("Casey Host"),
+    playerPool.create("Drew Artist"),
+    playerPool.create("Robin Artist"),
+  ]);
+  const [host, drew, robin] = players as [Player, Player, Player];
+  const code = await createRoom(host);
+  await joinRoom(drew, code);
+  await joinRoom(robin, code);
+  await host.page.getByRole("button", { name: "Start match" }).click();
+
+  for (const [round, judge] of [host, drew, robin].entries()) {
+    const artists = players.filter((player) => player !== judge);
+    await expect(judge.page.getByRole("heading", { name: "Pick the word" })).toBeVisible({
+      timeout: 20_000,
+    });
+    await judge.page
+      .getByRole("group", { name: "Prompt suggestions" })
+      .getByRole("button")
+      .first()
+      .click();
+    await Promise.all(
+      artists.map(async (artist) => {
+        await expect(artist.page.getByLabel("Your canvas")).toBeVisible();
+        await artist.page.getByRole("button", { name: "Submit early" }).click();
+      }),
+    );
+    await expect(judge.page.getByRole("spinbutton", { name: "Drawing 1 rating" })).toBeVisible();
+    await judge.page.getByRole("spinbutton", { name: "Drawing 1 rating" }).fill("50");
+    await judge.page.getByRole("spinbutton", { name: "Drawing 2 rating" }).fill("50");
+    await judge.page.getByRole("button", { name: "Submit all ratings" }).click();
+    await expect(judge.page.getByText(/Top drawing:/)).toBeVisible();
+
+    const roundResult = await currentView(judge.page);
+    expect(roundResult.phase).toBe("ROUND_RESULT");
+    expect(roundResult.match?.roundIndex).toBe(round);
+    expect(roundResult.finalResult).toBeNull();
+  }
+
+  await expect
+    .poll(async () => (await currentView(host.page)).phase, { timeout: 15_000 })
+    .toBe("FINAL_RESULT");
+  await expect(host.page.getByRole("heading", { name: "Final scores…" })).toBeVisible();
+  await expect(host.page.locator("ol li")).toHaveCount(1);
+  await expect(host.page.getByRole("heading", { name: "Co-winners!" })).toHaveCount(0);
+
+  await expect(host.page.getByRole("heading", { name: "Co-winners!" })).toBeVisible();
+  const finalViews = await Promise.all(players.map(({ page }) => currentView(page)));
+  const expectedFinal = finalViews[0]!.finalResult;
+  expect(expectedFinal?.standings.map(({ score }) => score)).toEqual([100, 100, 100]);
+  expect(expectedFinal?.winners).toHaveLength(3);
+  for (const [player, view] of players.map(
+    (player, index) => [player, finalViews[index]!] as const,
+  )) {
+    expect(view.phase).toBe("FINAL_RESULT");
+    expect(view.match?.roundIndex).toBe(2);
+    expect(view.match?.totalRounds).toBe(3);
+    expect(view.finalResult).toEqual(expectedFinal);
+    await expect(player.page.getByText("3 rounds · 1 cycle")).toBeVisible();
+    await expect(player.page.getByRole("heading", { name: "Co-winners!" })).toBeVisible();
+    await expect(player.page.locator("ol li")).toHaveCount(3);
+    for (const coWinner of players) {
+      await expect(player.page.getByText(coWinner.name, { exact: true })).toBeVisible();
+    }
+  }
+
+  await robin.page.reload();
+  await expect(robin.page.getByRole("heading", { name: "Co-winners!" })).toBeVisible();
+  await expect(robin.page.getByRole("heading", { name: "Final scores…" })).toHaveCount(0);
+  await expect(robin.page.locator("ol li")).toHaveCount(3);
+  expect((await currentView(robin.page)).finalResult).toEqual(expectedFinal);
 });

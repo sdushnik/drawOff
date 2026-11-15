@@ -111,7 +111,7 @@ export function RoomScreen({ room }: { room: GameRoom }) {
         )}
 
         {view.phase === "ROUND_RESULT" && view.roundResult && <RoundResults view={view} clockOffset={room.clockOffset} />}
-        {view.phase === "FINAL_RESULT" && view.finalResult && <FinalResults view={view} room={room} />}
+        {view.phase === "FINAL_RESULT" && view.finalResult && <FinalResults view={view} room={room} clockOffset={room.clockOffset} />}
         {(view.phase === "ROUND_RESULT" || view.phase === "FINAL_RESULT") && (
           <ReactionBar reactions={room.reactions} onReact={room.sendReaction} />
         )}

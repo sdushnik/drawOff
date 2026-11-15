@@ -116,6 +116,7 @@ describe("animated result screens", () => {
       role: null,
       roundResult: null,
       finalResult: {
+        startedAt: 40_000,
         winners: ["artist-1", "artist-2"],
         standings: [
           { playerId: "artist-1", score: 100 },

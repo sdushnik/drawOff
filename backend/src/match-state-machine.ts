@@ -645,6 +645,7 @@ export class MatchStateMachine {
             .map(({ playerId, score }) => ({ playerId, score }));
           const topScore = standings[0]?.score ?? 0;
           return {
+            startedAt: progress.phaseStartedAt,
             winners: standings
               .filter(({ score }) => score === topScore)
               .map(({ playerId }) => playerId),

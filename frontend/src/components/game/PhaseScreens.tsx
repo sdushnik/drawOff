@@ -221,11 +221,10 @@ export function Leaderboard({ view }: { view: PlayerView }) {
   );
 }
 
-export function FinalResults({ view, room }: { view: PlayerView; room: GameRoom }) {
+export function FinalResults({ view, room, clockOffset = 0 }: { view: PlayerView; room: GameRoom; clockOffset?: number }) {
   const f = view.finalResult!;
   const top = f.standings[0]?.score ?? 0;
-  const startedAt = useRef(Date.now()).current;
-  const reveal = useResultReveal(f.standings.length, startedAt);
+  const reveal = useResultReveal(f.standings.length, f.startedAt, clockOffset);
   const visibleStandings = f.standings.slice(0, reveal.revealedCount);
   return (
     <Center className="max-w-xl">

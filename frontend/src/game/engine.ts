@@ -376,6 +376,7 @@ export class GameEngine {
       case "ROUND_RESULT": {
         if (match!.roundIndex + 1 >= match!.totalRounds) {
           match!.final = {
+            startedAt: this.now(),
             winners: topIds(match!.scores),
             standings: standings(match!.scores, match!.order),
             rounds: match!.totalRounds,
