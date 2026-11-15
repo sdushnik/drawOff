@@ -1,4 +1,4 @@
-import { drawCanvasStroke } from "./canvas-helpers";
+import { canvasInkPixelCount, drawCanvasStroke, renderedCanvasHash } from "./canvas-helpers";
 import { expect, test, type Player } from "./fixtures";
 import { createRoom, joinRoom } from "./room-helpers";
 import { currentView, frontendServiceCall, storedSession } from "./service-helpers";
@@ -150,5 +150,111 @@ test("host rematch returns everyone to the lobby, adjusts the roster, and starts
   expect(rematchHostView.myCanvas).toBeNull();
   expect(rematchHostView.roundResult).toBeNull();
   expect(rematchHostView.finalResult).toBeNull();
+});
+
+test("refreshing preserves lobby identity, word selection, and Artist drawing canvas while rejecting invalid session tokens", async ({
+  players: playerPool,
+}) => {
+  const [host, artist1, artist2] = (await Promise.all([
+    playerPool.create("Refresh Host"),
+    playerPool.create("Refresh Artist"),
+    playerPool.create("Steady Artist"),
+  ])) as [Player, Player, Player];
+
+  const code = await createRoom(host);
+  await joinRoom(artist1, code);
+  await joinRoom(artist2, code);
+
+  for (const player of [host, artist1, artist2]) {
+    await expect(player.page.getByRole("list", { name: "Players" }).getByRole("listitem")).toHaveCount(3);
+  }
+
+  await artist1.page.reload();
+  await expect(artist1.page.getByRole("heading", { name: "Players" })).toBeVisible();
+  await expect(artist1.page.getByRole("button", { name: "Join room" })).toHaveCount(0);
+  for (const player of [host, artist1, artist2]) {
+    await expect(player.page.getByRole("list", { name: "Players" }).getByRole("listitem")).toHaveCount(3);
+    await expect(
+      player.page
+        .getByRole("list", { name: "Players" })
+        .getByRole("listitem")
+        .filter({ hasText: artist1.name }),
+    ).toBeVisible();
+  }
+
+  await host.page.getByRole("button", { name: "Start match" }).click();
+  await expect(host.page.getByRole("heading", { name: "Pick the word" })).toBeVisible({
+    timeout: 20_000,
+  });
+
+  await host.page.reload();
+  await expect(host.page.getByRole("heading", { name: "Pick the word" })).toBeVisible();
+  await expect(host.page.getByRole("group", { name: "Prompt suggestions" })).toBeVisible();
+  const judgeView = await currentView(host.page);
+  expect(judgeView.phase).toBe("WORD_SELECTION");
+  expect(judgeView.role).toBe("judge");
+  expect(judgeView.suggestions).toHaveLength(3);
+
+  await host.page
+    .getByRole("group", { name: "Prompt suggestions" })
+    .getByRole("button")
+    .first()
+    .click();
+
+  await expect(artist1.page.getByLabel("Your canvas")).toBeVisible();
+  await drawCanvasStroke(artist1.page);
+
+  await expect
+    .poll(async () => (await currentView(artist1.page)).myCanvas?.canvas.actions.length ?? 0)
+    .toBeGreaterThan(0);
+
+  const beforeReloadCanvas = (await currentView(artist1.page)).myCanvas?.canvas;
+  expect(beforeReloadCanvas?.rev).toBeGreaterThan(0);
+  expect(beforeReloadCanvas?.actions.length).toBeGreaterThan(0);
+  const inkBefore = await canvasInkPixelCount(artist1.page.getByLabel("Your canvas"));
+  expect(inkBefore).toBeGreaterThan(50);
+
+  await artist1.page.reload();
+  await expect(artist1.page.getByLabel("Your canvas")).toBeVisible();
+
+  const restoredArtistView = await currentView(artist1.page);
+  expect(restoredArtistView.phase).toBe("DRAWING");
+  expect(restoredArtistView.role).toBe("artist");
+  expect(restoredArtistView.myCanvas?.canvas.rev).toBeGreaterThanOrEqual(beforeReloadCanvas?.rev ?? 0);
+  expect(restoredArtistView.myCanvas?.canvas.actions.length).toBeGreaterThanOrEqual(
+    beforeReloadCanvas?.actions.length ?? 0,
+  );
+
+  await expect.poll(() => canvasInkPixelCount(artist1.page.getByLabel("Your canvas"))).toBeGreaterThan(50);
+  const hashRestored = await renderedCanvasHash(artist1.page.getByLabel("Your canvas"));
+  await artist1.page.reload();
+  await expect(artist1.page.getByLabel("Your canvas")).toBeVisible();
+  await expect.poll(() => renderedCanvasHash(artist1.page.getByLabel("Your canvas"))).toBe(hashRestored);
+
+  const attacker = await playerPool.create("Attacker");
+  await attacker.page.goto(`/room/${code}`);
+  const victimSession = await storedSession(artist1.page);
+  await attacker.page.evaluate(
+    ({ roomCode, playerId }) => {
+      sessionStorage.setItem(
+        `drawoff:session:${roomCode}`,
+        JSON.stringify({
+          roomCode,
+          playerId,
+          token: "spoofed-invalid-token-12345",
+        }),
+      );
+    },
+    { roomCode: code, playerId: victimSession.playerId },
+  );
+
+  await attacker.page.reload();
+  await expect(
+    attacker.page.getByText("Your saved session is no longer valid"),
+  ).toBeVisible();
+  await expect(attacker.page.getByRole("button", { name: "Join room" })).toBeVisible();
+
+  await expect(artist1.page.getByLabel("Your canvas")).toBeVisible();
+  expect((await currentView(artist1.page)).me.id).toBe(victimSession.playerId);
 });
 
