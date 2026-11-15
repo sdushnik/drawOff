@@ -18,8 +18,9 @@ export async function frontendServiceCall(
   page: Page,
   method: ServiceMethod,
   args: unknown[] = [],
+  sessionOverride?: Session,
 ): Promise<ServiceCallResult> {
-  const session = await storedSession(page);
+  const session = sessionOverride ?? (await storedSession(page));
   const service = createSocketGameService(serverUrl());
   let unsubscribe = () => undefined;
   try {
