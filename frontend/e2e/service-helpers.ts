@@ -3,7 +3,13 @@ import type { Cycles, DrawOp, PlayerView, Session } from "@drawoff/contracts";
 import { createSocketGameService } from "../src/services/socketGameService";
 
 type ServiceMethod =
-  "kickPlayer" | "setCycles" | "startMatch" | "sendDrawOps" | "submitCanvas" | "submitRatings";
+  | "kickPlayer"
+  | "setCycles"
+  | "startMatch"
+  | "sendDrawOps"
+  | "submitCanvas"
+  | "submitRatings"
+  | "rematch";
 
 export type ServiceCallResult = { ok: true } | { ok: false; code: string; message: string };
 
@@ -27,6 +33,7 @@ export async function frontendServiceCall(
     if (method === "submitRatings") {
       await service.submitRatings(session, args[0] as Record<string, number>);
     }
+    if (method === "rematch") await service.rematch(session);
     return { ok: true };
   } catch (error) {
     return {
