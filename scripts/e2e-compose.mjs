@@ -194,6 +194,7 @@ export async function runComposePlaywright(playwrightArgs, options = {}) {
           env: {
             ...environment,
             DRAWOFF_E2E_BASE_URL: origin,
+            DRAWOFF_E2E_COMPOSE_PROJECT: projectName,
           },
         });
         exitCode = normalizeExitCode(playwright);
