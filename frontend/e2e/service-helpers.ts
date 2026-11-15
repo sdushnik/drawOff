@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import type { Cycles, DrawOp, PlayerView, Session } from "@drawoff/contracts";
+import type { Cycles, DrawOp, PlayerView, ReactionEmoji, Session } from "@drawoff/contracts";
 import { createSocketGameService } from "../src/services/socketGameService";
 
 type ServiceMethod =
@@ -9,7 +9,8 @@ type ServiceMethod =
   | "sendDrawOps"
   | "submitCanvas"
   | "submitRatings"
-  | "rematch";
+  | "rematch"
+  | "sendReaction";
 
 export type ServiceCallResult = { ok: true } | { ok: false; code: string; message: string };
 
@@ -34,6 +35,7 @@ export async function frontendServiceCall(
       await service.submitRatings(session, args[0] as Record<string, number>);
     }
     if (method === "rematch") await service.rematch(session);
+    if (method === "sendReaction") await service.sendReaction(session, args[0] as ReactionEmoji);
     return { ok: true };
   } catch (error) {
     return {
