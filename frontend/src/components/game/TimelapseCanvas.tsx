@@ -81,7 +81,7 @@ export function TimelapseCanvas({
 
   return (
     <div className="relative">
-      <DrawingCanvas canvas={frame} ariaLabel={ariaLabel} />
+      <DrawingCanvas key={playing ? "playback" : "final"} canvas={frame} ariaLabel={ariaLabel} />
       <Button
         type="button"
         variant="outline"
