@@ -13,6 +13,21 @@ import { ServiceError, type GameService, type Unsubscribe } from "./gameService"
 
 const REQUEST_TIMEOUT_MS = 5_000;
 
+export function isExplicitSessionRevocation(error: ServiceError): boolean {
+  if (error.code === "ROOM_NOT_FOUND") return true;
+  if (error.code === "UNAUTHORIZED") {
+    if (error.message.includes("Attach your session")) return false;
+    return true;
+  }
+  return false;
+}
+
+export function isTransientError(error: ServiceError): boolean {
+  if (error.code === "NETWORK") return true;
+  if (error.code === "UNAUTHORIZED" && error.message.includes("Attach your session")) return true;
+  return false;
+}
+
 export function createSocketGameService(serverUrl: string): GameService {
   const socket: Socket = io(serverUrl, {
     autoConnect: false,
@@ -21,12 +36,23 @@ export function createSocketGameService(serverUrl: string): GameService {
   let activeSession: Session | null = null;
   let activeOnError: ((error: ServiceError) => void) | undefined;
   let hasConnected = false;
+  let resumePromise: Promise<Session> | null = null;
   const viewListeners = new Set<(view: PlayerView) => void>();
   const reactionListeners = new Set<(reaction: Reaction) => void>();
 
+  const drawingQueue: Array<{
+    session: Session;
+    ops: DrawOp[];
+    resolve: () => void;
+    reject: (error: unknown) => void;
+  }> = [];
+  let isProcessingDrawingQueue = false;
+
   const toServiceError = (error: unknown) => {
+    if (error instanceof ServiceError) return error;
     const parsed = serviceErrorPayloadSchema.safeParse(error);
     if (parsed.success) return new ServiceError(parsed.data.code, parsed.data.message);
+    if (error instanceof Error) return new ServiceError("NETWORK", error.message);
     return new ServiceError("NETWORK", "The live game server is unavailable.");
   };
 
@@ -39,9 +65,12 @@ export function createSocketGameService(serverUrl: string): GameService {
     for (const listener of viewListeners) listener(parsed.data);
   };
   socket.on("state:update", onView);
-  socket.on("error", (error: unknown) =>
-    activeOnError?.(toServiceError(error)),
-  );
+  socket.on("error", (error: unknown) => {
+    const serviceError = toServiceError(error);
+    if (isExplicitSessionRevocation(serviceError)) {
+      activeOnError?.(serviceError);
+    }
+  });
   socket.on("reaction:new", (payload: unknown) => {
     const parsed = reactionSchema.safeParse(payload);
     if (!parsed.success) {
@@ -50,11 +79,37 @@ export function createSocketGameService(serverUrl: string): GameService {
     }
     for (const listener of reactionListeners) listener(parsed.data);
   });
+
+  const startResumePromise = (session: Session): Promise<Session> => {
+    if (resumePromise) return resumePromise;
+    const promise = (async () => {
+      try {
+        const response = await requestRaw<{ session: Session }>("session:resume", { session });
+        activeSession = response.session;
+        return response.session;
+      } catch (error: unknown) {
+        const serviceError = toServiceError(error);
+        if (isExplicitSessionRevocation(serviceError)) {
+          activeOnError?.(serviceError);
+        }
+        throw serviceError;
+      } finally {
+        if (resumePromise === promise) {
+          resumePromise = null;
+        }
+      }
+    })();
+    resumePromise = promise;
+    return promise;
+  };
+
   socket.on("connect", () => {
     if (hasConnected && activeSession) {
-      void request("session:resume", { session: activeSession }).catch((error: unknown) =>
-        activeOnError?.(toServiceError(error)),
-      );
+      void startResumePromise(activeSession)
+        .then(() => {
+          void processDrawingQueue();
+        })
+        .catch(() => undefined);
     }
     hasConnected = true;
   });
@@ -84,14 +139,21 @@ export function createSocketGameService(serverUrl: string): GameService {
       socket.connect();
     });
 
-  const request = async <TResponse>(event: string, payload: unknown): Promise<TResponse> => {
+  const requestRaw = async <TResponse>(event: string, payload: unknown): Promise<TResponse> => {
     await ensureConnected();
     return new Promise<TResponse>((resolve, reject) => {
+      let settled = false;
       const finish = (error: ServiceError | null, response?: TResponse) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
         socket.off("error", onRequestError);
+        socket.off("disconnect", onDisconnect);
         if (error) reject(error);
         else resolve(response as TResponse);
+      };
+      const onDisconnect = () => {
+        finish(new ServiceError("NETWORK", "Socket disconnected before response was received."));
       };
       const onRequestError = (error: unknown) => finish(toServiceError(error));
       const timer = setTimeout(
@@ -100,8 +162,64 @@ export function createSocketGameService(serverUrl: string): GameService {
       );
 
       socket.once("error", onRequestError);
+      socket.once("disconnect", onDisconnect);
       socket.emit(event, payload, (response: TResponse) => finish(null, response));
     });
+  };
+
+  const request = async <TResponse>(event: string, payload: unknown): Promise<TResponse> => {
+    await ensureConnected();
+    if (event !== "session:resume" && resumePromise) {
+      await resumePromise;
+    }
+    return requestRaw<TResponse>(event, payload);
+  };
+
+  const processDrawingQueue = async () => {
+    if (isProcessingDrawingQueue) return;
+    isProcessingDrawingQueue = true;
+
+    try {
+      while (drawingQueue.length > 0) {
+        await ensureConnected();
+        if (resumePromise) {
+          try {
+            await resumePromise;
+          } catch {
+            await new Promise((r) => setTimeout(r, 100));
+            continue;
+          }
+        }
+
+        const current = drawingQueue[0];
+        if (!current) break;
+
+        try {
+          await requestRaw("drawing:ops", { session: current.session, ops: current.ops });
+          drawingQueue.shift();
+          current.resolve();
+        } catch (error) {
+          const serviceError = toServiceError(error);
+          if (isTransientError(serviceError)) {
+            if (serviceError.message.includes("Attach your session") && activeSession) {
+              void startResumePromise(activeSession);
+            }
+            await new Promise((r) => setTimeout(r, 100));
+            continue;
+          }
+
+          drawingQueue.shift();
+          current.reject(serviceError);
+          if (serviceError.code === "WRONG_PHASE" || serviceError.code === "DEADLINE_PASSED") {
+            while (drawingQueue.length > 0) {
+              drawingQueue.shift()?.reject(serviceError);
+            }
+          }
+        }
+      }
+    } finally {
+      isProcessingDrawingQueue = false;
+    }
   };
 
   const unsupported = async (): Promise<never> => {
@@ -134,7 +252,11 @@ export function createSocketGameService(serverUrl: string): GameService {
       await request("prompt:select", { session, prompt });
     },
     sendDrawOps: async (session: Session, ops: DrawOp[]) => {
-      await request("drawing:ops", { session, ops });
+      if (ops.length === 0) return;
+      return new Promise<void>((resolve, reject) => {
+        drawingQueue.push({ session, ops, resolve, reject });
+        void processDrawingQueue();
+      });
     },
     submitCanvas: async (session: Session) => {
       await request("drawing:submit", { session });
@@ -159,9 +281,12 @@ export function createSocketGameService(serverUrl: string): GameService {
       activeOnError = onError;
       viewListeners.add(onUpdate);
       if (onReaction) reactionListeners.add(onReaction);
-      void request("state:subscribe", { session }).catch((error: unknown) =>
-        onError?.(toServiceError(error)),
-      );
+      void request("state:subscribe", { session }).catch((error: unknown) => {
+        const serviceError = toServiceError(error);
+        if (isExplicitSessionRevocation(serviceError)) {
+          onError?.(serviceError);
+        }
+      });
       return () => {
         viewListeners.delete(onUpdate);
         if (onReaction) reactionListeners.delete(onReaction);
