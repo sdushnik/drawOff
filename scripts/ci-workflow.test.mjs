@@ -16,6 +16,14 @@ test("CI/CD verifies pull requests and main pushes before an opt-in deployment",
   assert.deepEqual(workflow.permissions, { contents: "read" });
 
   const verifySteps = workflow.jobs.verify.steps;
+  assert.deepEqual(
+    verifySteps.filter(({ uses }) => uses).map(({ uses }) => uses),
+    [
+      "actions/checkout@v7",
+      "actions/setup-node@v7",
+      "actions/upload-artifact@v6",
+    ],
+  );
   const commands = verifySteps
     .map((step) => step.run)
     .filter((command) => typeof command === "string");

@@ -195,7 +195,7 @@ test("Socket.IO prompt requests enforce privacy, authorization, normalization, a
       response: {},
     });
 
-    test("Socket.IO drawing requests commit before acknowledgement and lock only the submitting Artist", async () => {
+    await test("Socket.IO drawing requests commit before acknowledgement and lock only the submitting Artist", async () => {
       const fixture = await openThreePlayerMatch();
       const [judgeSocket, artistSocket, otherArtistSocket] = fixture.sockets;
       const [judge, artist, otherArtist] = fixture.sessions;
