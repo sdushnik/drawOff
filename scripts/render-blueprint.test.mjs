@@ -43,10 +43,7 @@ test("Render Blueprint keeps the free deployment single-instance and secret-free
   );
   assert.equal("scaling" in service, false);
   assert.equal("preDeployCommand" in service, false);
-  assert.match(
-    service.dockerCommand,
-    /^\/bin\/sh -c 'node dist\/database\/migrate\.js && exec node dist\/index\.js'$/,
-  );
+  assert.equal(service.dockerCommand, "node dist/render.js");
   await readFile(dockerfilePath, "utf8");
 
   assert.deepEqual(environmentVariable(service, "DATABASE_URL"), {

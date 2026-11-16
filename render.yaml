@@ -9,7 +9,7 @@ services:
     autoDeployTrigger: off
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    dockerCommand: /bin/sh -c 'node dist/database/migrate.js && exec node dist/index.js'
+    dockerCommand: node dist/render.js
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
