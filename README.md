@@ -189,4 +189,9 @@ Production-like deployment, browser/Socket.IO smoke testing, and measured
 capacity workflows are documented in [`_docs/deployment.md`](_docs/deployment.md).
 The root [`render.yaml`](render.yaml) is a validated, single-instance free
 Render Blueprint for the existing Docker image and a free Render PostgreSQL
-database; applying it remains an explicit manual operation.
+database. GitHub Actions verifies pull requests and `main` pushes through the
+full PostgreSQL 18 Compose/Playwright path; production deployment remains
+disabled until its documented secrets are configured and the safe repository
+enablement variable is explicitly switched on. See
+[`_docs/deployment.md`](_docs/deployment.md#github-actions-cicd) for setup,
+failure artifacts, health verification, and rollback.

@@ -1,0 +1,78 @@
+name: CI/CD
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Test, build, and browser verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out the verified commit
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Run workspace unit and integration tests
+        run: npm test
+
+      - name: Build production application
+        run: npm run build
+
+      - name: Build production Docker image
+        run: docker build --pull --tag "drawoff:${GITHUB_SHA}" .
+
+      - name: Install Playwright Chromium
+        run: npm exec --workspace frontend -- playwright install --with-deps chromium
+
+      - name: Run complete Compose Playwright suite
+        run: npm run test:e2e:compose
+
+      - name: Upload Playwright failure artifacts
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  deploy:
+    name: Deploy verified commit to Render
+    needs: verify
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      vars.RENDER_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    concurrency:
+      group: render-production
+      cancel-in-progress: false
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_COMMIT_SHA: ${{ github.sha }}
+      RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+    steps:
+      - name: Check out the verified commit
+        uses: actions/checkout@v4
+
+      - name: Trigger, await, and verify Render deployment
+        run: node scripts/render-deploy.mjs
