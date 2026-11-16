@@ -305,6 +305,7 @@ test("Socket.IO final standings and rematches are authoritative and preserve the
     );
     const tieResult = tieResultViews[0]!.finalResult!;
     assert.deepEqual(tieResult, {
+      startedAt: clock.now(),
       winners: sessions.slice(0, 3).map(({ playerId }) => playerId),
       standings: [
         ...sessions.slice(0, 3).map(({ playerId }) => ({ playerId, score: 600 })),
@@ -408,6 +409,7 @@ test("Socket.IO final standings and rematches are authoritative and preserve the
       (playerId) => (playerId === sessions[0]!.playerId ? 100 : 0),
     );
     assert.deepEqual(uniqueResultViews[0]!.finalResult, {
+      startedAt: clock.now(),
       winners: [sessions[0]!.playerId],
       standings: [
         { playerId: sessions[0]!.playerId, score: 400 },

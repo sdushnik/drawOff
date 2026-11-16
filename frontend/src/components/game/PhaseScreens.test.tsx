@@ -232,6 +232,7 @@ describe("RoomScreen confirmed prompt", () => {
         : null;
       const finalResult = phase === "FINAL_RESULT"
         ? {
+            startedAt: 40_000,
             winners: ["artist-1"],
             standings: [
               { playerId: "artist-1", score: 80 },
