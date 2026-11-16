@@ -14,6 +14,78 @@ Compose topology below. This work does not deploy to an external service and
 does not add AWS infrastructure, multi-instance coordination, or CI/CD
 automation. PostgreSQL is never installed inside the DrawOff image.
 
+## Free Render Blueprint
+
+The root [`render.yaml`](../render.yaml) describes exactly two resources: one
+free Render Web Service built from the existing root `Dockerfile`, and one free
+Render PostgreSQL 18 database. The application is manually fixed at one
+instance. The Blueprint does not create a second frontend service, a worker,
+AWS infrastructure, CI/CD automation, or multi-instance coordination.
+Commit-triggered auto-deploys are disabled; deployment remains a manual Render
+operation.
+
+`DATABASE_URL` comes from Render's `connectionString` resource reference, so
+the generated database credentials are never stored in Git. `PORT` is set to
+`10000`, and Fastify already binds that value on `0.0.0.0`. Because Render's
+pre-deploy command is unavailable on free web services, the Docker command runs
+the compiled, repeatable Kysely migration entry point and starts Fastify only
+after migration succeeds. Render checks `GET /health` before routing traffic.
+
+`FRONTEND_ORIGINS` self-references Render's automatically supplied
+`RENDER_EXTERNAL_URL`. The production SPA already selects `window.location.origin`
+when no separate game server is configured, so HTTP and Socket.IO share the
+service's `https://*.onrender.com` origin. Render redirects HTTP to HTTPS,
+terminates TLS, and supports WebSocket upgrades; browsers therefore use secure
+WSS without a committed `VITE_GAME_SERVER_URL` or any database value in a
+`VITE_*` variable.
+
+### Validate and apply manually
+
+The repository test parses the Blueprint and enforces its topology, resource
+references, migration command, port, and health path:
+
+```sh
+npm run test:orchestration
+```
+
+With Render CLI 2.7.1 or newer authenticated to the intended workspace, run
+Render's schema and semantic validation. This command validates only; it does
+not create, update, sync, or deploy resources:
+
+```sh
+render blueprints validate render.yaml
+```
+
+To deploy later, connect the repository as a new Blueprint in the Render
+Dashboard, review the two-resource plan, and apply it. No secret values need to
+be entered for this Blueprint. This repository preparation deliberately does
+not perform those Dashboard steps or create external resources.
+
+After a successful manual deployment, replace the example hostname and verify
+the public readiness endpoint and a forced same-origin WebSocket connection:
+
+```sh
+curl --fail --silent https://drawoff-example.onrender.com/health
+CONTAINER_SMOKE_ORIGIN=https://drawoff-example.onrender.com \
+  npm run verify:compose:websocket
+```
+
+The expected health body is `{"status":"ready"}`. The WebSocket check rejects
+polling fallback, so success confirms that `/socket.io` upgrades over WSS on
+the same public origin. A custom domain is outside this Blueprint; if one is
+added later, add its exact HTTPS origin to `FRONTEND_ORIGINS` in Render.
+
+### Free-tier limits
+
+Render's free service tier is suitable for evaluation, not production. The web
+service spins down after 15 minutes without inbound HTTP requests or WebSocket
+messages and can take about a minute to wake. Its local filesystem is
+ephemeral, which is why this Blueprint uses PostgreSQL instead of the image's
+SQLite default. Free Render PostgreSQL is limited to 1 GB, expires 30 days
+after creation, has no backups, and is limited to one free database per Render
+workspace. Render can also restart either free resource, and free web-service
+usage is subject to the workspace's monthly free-instance allowance.
+
 ## Build the image
 
 Use Docker Engine and build from the repository root:

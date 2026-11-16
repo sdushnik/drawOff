@@ -187,3 +187,6 @@ The backend build is emitted to `backend/dist`; start it with
 
 Production-like deployment, browser/Socket.IO smoke testing, and measured
 capacity workflows are documented in [`_docs/deployment.md`](_docs/deployment.md).
+The root [`render.yaml`](render.yaml) is a validated, single-instance free
+Render Blueprint for the existing Docker image and a free Render PostgreSQL
+database; applying it remains an explicit manual operation.
