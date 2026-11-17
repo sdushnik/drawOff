@@ -206,6 +206,7 @@ function registerRoomHandlers(
   const pendingTransitionRooms = new Set<string>();
   let persistenceInFlight: Promise<void> | null = null;
   let persistenceRequested = false;
+  let drawingPersistenceTimer: ReturnType<typeof setTimeout> | null = null;
   const persist = async () => {
     if (!repository) return;
     persistenceRequested = true;
@@ -242,6 +243,7 @@ function registerRoomHandlers(
 
   const executeMutation = async <T>(
     operation: () => T | Promise<T>,
+    shouldPersist = true,
   ): Promise<T> => {
     const roomsBefore = roomService.exportDurableState();
     const matchesBefore = matchStateMachine.exportDurableState();
@@ -275,12 +277,14 @@ function registerRoomHandlers(
     }
 
     mutationDepth = 0;
-    try {
-      await persist();
-    } catch (error) {
-      pendingTransitionRooms.clear();
-      restoreSnapshots(roomsBefore, matchesBefore);
-      throw error;
+    if (shouldPersist) {
+      try {
+        await persist();
+      } catch (error) {
+        pendingTransitionRooms.clear();
+        restoreSnapshots(roomsBefore, matchesBefore);
+        throw error;
+      }
     }
     const transitionedRooms = [...pendingTransitionRooms];
     pendingTransitionRooms.clear();
@@ -295,6 +299,23 @@ function registerRoomHandlers(
       () => undefined,
     );
     return execution;
+  };
+
+  const drawingMutation = <T>(operation: () => T | Promise<T>): Promise<T> => {
+    const execution = mutationQueue.then(() => executeMutation(operation, false));
+    mutationQueue = execution.then(
+      () => undefined,
+      () => undefined,
+    );
+    return execution;
+  };
+
+  const scheduleDrawingPersistence = () => {
+    if (!repository || drawingPersistenceTimer !== null) return;
+    drawingPersistenceTimer = setTimeout(() => {
+      drawingPersistenceTimer = null;
+      void persist().catch(() => undefined);
+    }, 100);
   };
 
   const playerKey = (session: Session) =>
@@ -344,6 +365,10 @@ function registerRoomHandlers(
     maxCanvasActionsPerRoom: resourceLimits.maxCanvasActionsPerRoom,
     onTransition: (roomCode) => {
       if (suppressTransitionSideEffects) return;
+      if (drawingPersistenceTimer !== null) {
+        clearTimeout(drawingPersistenceTimer);
+        drawingPersistenceTimer = null;
+      }
       if (mutationDepth > 0) {
         pendingTransitionRooms.add(roomCode);
         return;
@@ -705,9 +730,16 @@ function registerRoomHandlers(
           assertAttached(socket, session);
           enforceAttachedRateLimits(socket, "drawing");
           const authenticated = attachedSessions.get(socket.id)!;
-          const changed = matchStateMachine.sendDrawOps(authenticated, ops);
+          const changed = await drawingMutation(() =>
+            matchStateMachine.sendDrawOps(authenticated, ops),
+          );
           if (changed) {
-            await persist();
+            const shouldAwaitPersistence =
+              persistenceInFlight === null && drawingPersistenceTimer === null;
+            if (shouldAwaitPersistence) {
+              await persist();
+            }
+            scheduleDrawingPersistence();
             publishDrawingViews(authenticated.roomCode, authenticated.playerId);
           }
           return {};
