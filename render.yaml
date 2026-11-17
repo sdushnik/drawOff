@@ -23,6 +23,10 @@ services:
           envVarKey: RENDER_EXTERNAL_URL
       - key: PORT
         value: "10000"
+      - key: DRAWOFF_DEPLOYMENT_ENVIRONMENT
+        value: production
+      - key: OTEL_SERVICE_NAME
+        value: drawoff-backend
 
 databases:
   - name: drawoff-postgres

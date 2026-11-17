@@ -78,6 +78,35 @@ The test command refuses PostgreSQL databases whose name does not begin with
 credential-safe deployment examples are in
 [`_docs/deployment.md`](_docs/deployment.md).
 
+## Backend telemetry
+
+OpenTelemetry is opt-in. Set `DRAWOFF_TELEMETRY_ENABLED=true` and configure an
+OTLP/HTTP protobuf receiver with the standard `OTEL_EXPORTER_OTLP_*`
+environment variables. For example, a local collector normally uses:
+
+```sh
+DRAWOFF_TELEMETRY_ENABLED=true \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 \
+DATABASE_URL='sqlite:./data/drawoff.sqlite' \
+npm run dev --workspace @drawoff/backend
+```
+
+The backend exports traces, the `drawoff.backend.operations` counter, the
+`drawoff.backend.operation.duration` histogram, and trace-correlated operation
+logs for Fastify, inbound Socket.IO events, and repository operations. Resource
+identity uses `OTEL_SERVICE_NAME` (default `drawoff-backend`),
+`DRAWOFF_DEPLOYMENT_ENVIRONMENT`, and `DRAWOFF_SERVICE_VERSION` or Render's
+`RENDER_GIT_COMMIT`.
+
+Instrumentation records only bounded operation names, outcomes, durations,
+safe HTTP methods, and the `/health` or `unmatched` route class. It never
+records request or event payloads, raw URLs, SQL statements, database values,
+credentials, player information, room codes, prompts, ratings, or drawing
+contents. Keep OTLP authorization values in `OTEL_EXPORTER_OTLP_HEADERS` in a
+secret manager, never in source or a frontend `VITE_*` variable. Full setup,
+shutdown, validation, and Render guidance is in
+[`_docs/deployment.md`](_docs/deployment.md#opentelemetry-export).
+
 ## Local PostgreSQL Compose stack
 
 The root [`compose.yaml`](compose.yaml) builds the existing DrawOff production

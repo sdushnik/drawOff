@@ -161,6 +161,88 @@ commit already observed in development: open the CI/CD workflow, select `main`,
 check `deploy_production`, and run it. The workflow repeats the full
 verification before deployment; it never copies development database state.
 
+## OpenTelemetry export
+
+The backend includes manual, allowlisted OpenTelemetry instrumentation for the
+three authoritative operation boundaries:
+
+- Fastify request spans, metrics, and completion logs include a safe HTTP
+  method and only the `/health` or `unmatched` route class. Raw paths and query
+  strings are never attributes.
+- Socket.IO telemetry includes only the declared inbound event name and
+  success/error outcome. It never receives or serializes the event payload.
+- Kysely repository telemetry includes only `migrate`, `load`, `replace`, or
+  `close`. SQL text, connection strings, table rows, and durable snapshots are
+  never attributes, span events, or log bodies.
+
+All completion logs use the fixed body `Backend operation completed.` and the
+same active span context as their operation. The exported metrics are
+`drawoff.backend.operations` and `drawoff.backend.operation.duration`. The
+attribute set is intentionally low-cardinality: operation kind/name/outcome,
+duration, safe HTTP method/route class, and fixed subsystem names. Do not add
+player names or IDs, session tokens, room codes, prompts, ratings, drawing
+operations, arbitrary errors, request URLs, or database data to telemetry.
+
+Telemetry is disabled unless `DRAWOFF_TELEMETRY_ENABLED` is exactly `true`.
+When disabled, the OpenTelemetry APIs remain no-op and no collector connection
+is attempted. When enabled, traces, metrics, and logs use the official
+OTLP/HTTP protobuf exporters. Configure their receiver with the standard
+OpenTelemetry variables:
+
+- `OTEL_EXPORTER_OTLP_ENDPOINT` — base collector/backend URL; the exporters use
+  the signal-specific `/v1/traces`, `/v1/metrics`, and `/v1/logs` endpoints.
+- `OTEL_EXPORTER_OTLP_HEADERS` — optional authorization headers. Treat the
+  entire value as a secret and configure it only in the hosting platform or a
+  local untracked environment.
+- Signal-specific `OTEL_EXPORTER_OTLP_TRACES_*`,
+  `OTEL_EXPORTER_OTLP_METRICS_*`, and `OTEL_EXPORTER_OTLP_LOGS_*` variables may
+  override the shared endpoint, headers, timeout, or compression when needed.
+
+Resource attributes are always supplied from a narrow allowlist:
+
+- `service.name` comes from `OTEL_SERVICE_NAME` and defaults to
+  `drawoff-backend`.
+- `deployment.environment.name` comes from
+  `DRAWOFF_DEPLOYMENT_ENVIRONMENT`, then `NODE_ENV`, and defaults to
+  `development`.
+- `service.version` comes from `DRAWOFF_SERVICE_VERSION`, then Render's
+  automatically supplied `RENDER_GIT_COMMIT`, and defaults to `development`
+  for local work.
+
+Values are trimmed, length-bounded, and limited to identifier-safe characters.
+Automatic resource detection is off, so unrelated process or host environment
+values cannot become resource attributes. The Render Blueprints set the shared
+service name and distinct `production`/`development` environment attributes.
+In each Render service, add the OTLP endpoint and optional headers as secrets or
+private environment values, verify they reference the intended environment's
+collector, and only then set `DRAWOFF_TELEMETRY_ENABLED=true`. Do not commit
+collector credentials or place them in GitHub workflow output.
+
+For local validation, start an OTLP/HTTP receiver on port `4318`, then run:
+
+```sh
+DRAWOFF_TELEMETRY_ENABLED=true \
+OTEL_SERVICE_NAME=drawoff-backend \
+DRAWOFF_DEPLOYMENT_ENVIRONMENT=development \
+DRAWOFF_SERVICE_VERSION=local \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 \
+DATABASE_URL='sqlite:./data/drawoff-telemetry.sqlite' \
+npm run dev --workspace @drawoff/backend
+```
+
+Exercise `/health` and one Socket.IO action, then confirm all three OTLP
+pipelines receive the same resource identity and that completion logs contain
+the operation span's trace and span IDs. Stop the process with `SIGINT` or
+`SIGTERM`; DrawOff closes Socket.IO, Fastify, the repository, and the
+OpenTelemetry SDK so buffered telemetry can flush. Collector unavailability
+does not change request, acknowledgement, or persistence results.
+
+Focused privacy and correlation coverage is available without a collector:
+
+```sh
+npx tsx --test backend/test/telemetry.test.ts
+```
+
 ### Rollback
 
 First set `DEVELOPMENT_RENDER_DEPLOY_ENABLED=false` if development also needs

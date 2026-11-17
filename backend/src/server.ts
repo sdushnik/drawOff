@@ -44,6 +44,12 @@ import {
   type ResourceLimitOptions,
   type ResourceLimits,
 } from "./resource-limits.js";
+import {
+  backendTelemetry,
+  type BackendTelemetry,
+  type SocketTelemetryEvent,
+  type TelemetryOperation,
+} from "./telemetry.js";
 
 type ClientSocketEvents = {
   [Event in keyof ClientToServerPayloads]: (
@@ -136,14 +142,18 @@ function emitSocketError(
 }
 
 function handleSocketRequest<TPayload, TResponse>(
+  event: SocketTelemetryEvent,
+  telemetry: BackendTelemetry,
   socket: Socket<ClientSocketEvents, ServerSocketEvents>,
   rawPayload: unknown,
   payloadSchema: RuntimeSchema<TPayload>,
   responseSchema: RuntimeSchema<TResponse>,
   acknowledge: ((response: TResponse) => void) | undefined,
-  operation: (payload: TPayload) => unknown | Promise<unknown>,
+  handler: (payload: TPayload) => unknown | Promise<unknown>,
 ): void {
+  const telemetryOperation = telemetry.startSocketEvent(event);
   if (typeof acknowledge !== "function") {
+    telemetryOperation.end("error");
     emitSocketError(
       socket,
       "INVALID_INPUT",
@@ -154,11 +164,13 @@ function handleSocketRequest<TPayload, TResponse>(
 
   const parsed = payloadSchema.safeParse(rawPayload);
   if (!parsed.success) {
+    telemetryOperation.end("error");
     emitSocketError(socket, "INVALID_INPUT", "The request is invalid.");
     return;
   }
 
   const fail = (error: unknown) => {
+    telemetryOperation.end("error");
     if (error instanceof RoomServiceError) {
       emitSocketError(socket, error.code, error.message);
       return;
@@ -179,8 +191,14 @@ function handleSocketRequest<TPayload, TResponse>(
   };
 
   try {
-    void Promise.resolve(operation(parsed.data))
-      .then((value) => acknowledge(responseSchema.parse(value)))
+    const result = telemetryOperation.run(() =>
+      Promise.resolve(handler(parsed.data)),
+    );
+    void result
+      .then((value) => {
+        acknowledge(responseSchema.parse(value));
+        telemetryOperation.end("ok");
+      })
       .catch(fail);
   } catch (error) {
     fail(error);
@@ -195,6 +213,7 @@ function registerRoomHandlers(
   machineOptions: Omit<MatchStateMachineOptions, "onTransition"> = {},
   repository?: GameStateRepository,
   initialMatches: readonly DurableMatchProgress[] = [],
+  telemetry: BackendTelemetry = backendTelemetry,
 ): MatchStateMachine {
   const attachedSessions = new Map<string, Session>();
   const playerSockets = new Map<string, Set<string>>();
@@ -515,6 +534,8 @@ function registerRoomHandlers(
 
     socket.on("room:create", (payload, acknowledge) => {
       handleSocketRequest(
+        "room:create",
+        telemetry,
         socket,
         payload,
         clientToServerPayloadSchemas["room:create"],
@@ -539,6 +560,8 @@ function registerRoomHandlers(
 
     socket.on("room:join", (payload, acknowledge) => {
       handleSocketRequest(
+        "room:join",
+        telemetry,
         socket,
         payload,
         clientToServerPayloadSchemas["room:join"],
@@ -572,6 +595,8 @@ function registerRoomHandlers(
 
     socket.on("session:resume", (payload, acknowledge) => {
       handleSocketRequest(
+        "session:resume",
+        telemetry,
         socket,
         payload,
         clientToServerPayloadSchemas["session:resume"],
@@ -587,6 +612,8 @@ function registerRoomHandlers(
 
     socket.on("state:subscribe", (payload, acknowledge) => {
       handleSocketRequest(
+        "state:subscribe",
+        telemetry,
         socket,
         payload,
         clientToServerPayloadSchemas["state:subscribe"],
@@ -602,6 +629,8 @@ function registerRoomHandlers(
 
     socket.on("room:leave", (payload, acknowledge) => {
       handleSocketRequest(
+        "room:leave",
+        telemetry,
         socket,
         payload,
         clientToServerPayloadSchemas["room:leave"],
@@ -621,6 +650,8 @@ function registerRoomHandlers(
 
     socket.on("player:kick", (payload, acknowledge) => {
       handleSocketRequest(
+        "player:kick",
+        telemetry,
         socket,
         payload,
         clientToServerPayloadSchemas["player:kick"],
@@ -655,6 +686,8 @@ function registerRoomHandlers(
 
     socket.on("match:set-cycles", (payload, acknowledge) => {
       handleSocketRequest(
+        "match:set-cycles",
+        telemetry,
         socket,
         payload,
         clientToServerPayloadSchemas["match:set-cycles"],
@@ -671,6 +704,8 @@ function registerRoomHandlers(
 
     socket.on("match:start", (payload, acknowledge) => {
       handleSocketRequest(
+        "match:start",
+        telemetry,
         socket,
         payload,
         clientToServerPayloadSchemas["match:start"],
@@ -687,6 +722,8 @@ function registerRoomHandlers(
 
     socket.on("match:rematch", (payload, acknowledge) => {
       handleSocketRequest(
+        "match:rematch",
+        telemetry,
         socket,
         payload,
         clientToServerPayloadSchemas["match:rematch"],
@@ -704,6 +741,8 @@ function registerRoomHandlers(
 
     socket.on("prompt:select", (payload, acknowledge) => {
       handleSocketRequest(
+        "prompt:select",
+        telemetry,
         socket,
         payload,
         clientToServerPayloadSchemas["prompt:select"],
@@ -721,6 +760,8 @@ function registerRoomHandlers(
 
     socket.on("drawing:ops", (payload, acknowledge) => {
       handleSocketRequest(
+        "drawing:ops",
+        telemetry,
         socket,
         payload,
         clientToServerPayloadSchemas["drawing:ops"],
@@ -749,6 +790,8 @@ function registerRoomHandlers(
 
     socket.on("drawing:submit", (payload, acknowledge) => {
       handleSocketRequest(
+        "drawing:submit",
+        telemetry,
         socket,
         payload,
         clientToServerPayloadSchemas["drawing:submit"],
@@ -769,6 +812,8 @@ function registerRoomHandlers(
 
     socket.on("ratings:submit", (payload, acknowledge) => {
       handleSocketRequest(
+        "ratings:submit",
+        telemetry,
         socket,
         payload,
         clientToServerPayloadSchemas["ratings:submit"],
@@ -790,6 +835,8 @@ function registerRoomHandlers(
 
     socket.on("reaction:send", (payload, acknowledge) => {
       handleSocketRequest(
+        "reaction:send",
+        telemetry,
         socket,
         payload,
         clientToServerPayloadSchemas["reaction:send"],
@@ -889,6 +936,7 @@ export function createServer(
     repository?: GameStateRepository;
     initialMatches?: readonly DurableMatchProgress[];
     frontendAssetsDirectory?: string;
+    telemetry?: BackendTelemetry;
   } = {},
 ) {
   const corsOrigins = validateCorsOrigins(
@@ -896,7 +944,26 @@ export function createServer(
   );
   const resourceLimits = resolveResourceLimits(options.resourceLimits);
   const roomService = options.roomService ?? createRoomService();
+  const telemetry = options.telemetry ?? backendTelemetry;
   const app = Fastify({ logger: options.logger ?? true });
+  const httpOperations = new WeakMap<object, TelemetryOperation>();
+  app.addHook("onRequest", (request, _reply, done) => {
+    const operation = telemetry.startHttpRequest(
+      request.method,
+      request.routeOptions.url,
+    );
+    httpOperations.set(request, operation);
+    operation.run(done);
+  });
+  app.addHook("onError", async (request) => {
+    httpOperations.get(request)?.end("error");
+  });
+  app.addHook("onResponse", async (request, reply) => {
+    httpOperations
+      .get(request)
+      ?.end(reply.statusCode >= 500 ? "error" : "ok");
+    httpOperations.delete(request);
+  });
   void app.register(cors, {
     origin: corsOrigins,
     credentials: true,
@@ -919,6 +986,7 @@ export function createServer(
     options.matchStateMachineOptions,
     options.repository,
     options.initialMatches,
+    telemetry,
   );
   let fastifyReady = false;
 
@@ -1019,10 +1087,12 @@ export async function createPersistentServer(
     matchStateMachineOptions?: Omit<MatchStateMachineOptions, "onTransition">;
     databaseUrl?: string;
     frontendAssetsDirectory?: string;
+    telemetry?: BackendTelemetry;
   } = {},
 ) {
   const repository = KyselyGameStateRepository.open(
     options.databaseUrl ?? databaseUrlFromEnvironment(),
+    options.telemetry ?? backendTelemetry,
   );
   try {
     await repository.migrate();
@@ -1040,6 +1110,7 @@ export async function createPersistentServer(
       repository,
       initialMatches: state.matches,
       frontendAssetsDirectory: options.frontendAssetsDirectory,
+      telemetry: options.telemetry,
     });
     await repository.replace({
       rooms: roomService.exportDurableState(),

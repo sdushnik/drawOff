@@ -35,6 +35,14 @@ RUN npm run build \
     'bundledDependencies[4]=kysely' \
     'bundledDependencies[5]=pg' \
     'bundledDependencies[6]=socket.io' \
+    'bundledDependencies[7]=@opentelemetry/api' \
+    'bundledDependencies[8]=@opentelemetry/exporter-logs-otlp-proto' \
+    'bundledDependencies[9]=@opentelemetry/exporter-metrics-otlp-proto' \
+    'bundledDependencies[10]=@opentelemetry/exporter-trace-otlp-proto' \
+    'bundledDependencies[11]=@opentelemetry/resources' \
+    'bundledDependencies[12]=@opentelemetry/sdk-logs' \
+    'bundledDependencies[13]=@opentelemetry/sdk-metrics' \
+    'bundledDependencies[14]=@opentelemetry/sdk-node' \
   && mkdir -p /app/artifacts \
   && npm pack --workspace @drawoff/backend --pack-destination /app/artifacts
 
