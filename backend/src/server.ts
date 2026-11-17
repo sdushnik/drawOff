@@ -53,7 +53,9 @@ type ClientSocketEvents = {
 };
 
 type ServerSocketEvents = {
-  [Event in keyof ServerToClientPayloads]: (payload: ServerToClientPayloads[Event]) => void;
+  [Event in keyof ServerToClientPayloads]: (
+    payload: ServerToClientPayloads[Event],
+  ) => void;
 };
 
 export interface RunningServer {
@@ -71,7 +73,9 @@ const developmentOrigins = [
 
 function validateCorsOrigins(origins: readonly string[]): string[] {
   if (origins.length === 0) {
-    throw new Error("At least one explicit frontend origin must be configured.");
+    throw new Error(
+      "At least one explicit frontend origin must be configured.",
+    );
   }
 
   return [
@@ -117,9 +121,9 @@ export function resolveCorsOrigins(
 }
 
 interface RuntimeSchema<T> {
-  safeParse(payload: unknown):
-    | { success: true; data: T }
-    | { success: false; error: unknown };
+  safeParse(
+    payload: unknown,
+  ): { success: true; data: T } | { success: false; error: unknown };
   parse(payload: unknown): T;
 }
 
@@ -140,7 +144,11 @@ function handleSocketRequest<TPayload, TResponse>(
   operation: (payload: TPayload) => unknown | Promise<unknown>,
 ): void {
   if (typeof acknowledge !== "function") {
-    emitSocketError(socket, "INVALID_INPUT", "A request acknowledgement is required.");
+    emitSocketError(
+      socket,
+      "INVALID_INPUT",
+      "A request acknowledgement is required.",
+    );
     return;
   }
 
@@ -156,10 +164,18 @@ function handleSocketRequest<TPayload, TResponse>(
       return;
     }
     if (error instanceof RoomPersistenceError) {
-      emitSocketError(socket, "SERVICE_UNAVAILABLE", "The room state could not be saved. Try again.");
+      emitSocketError(
+        socket,
+        "SERVICE_UNAVAILABLE",
+        "The room state could not be saved. Try again.",
+      );
       return;
     }
-    emitSocketError(socket, "REQUEST_FAILED", "The request could not be completed.");
+    emitSocketError(
+      socket,
+      "REQUEST_FAILED",
+      "The request could not be completed.",
+    );
   };
 
   try {
@@ -184,20 +200,31 @@ function registerRoomHandlers(
   const playerSockets = new Map<string, Set<string>>();
   let shuttingDown = false;
   let matchStateMachine: MatchStateMachine;
-  let persistenceQueue = Promise.resolve();
   let mutationQueue = Promise.resolve();
   let mutationDepth = 0;
   let suppressTransitionSideEffects = false;
   const pendingTransitionRooms = new Set<string>();
+  let persistenceInFlight: Promise<void> | null = null;
+  let persistenceRequested = false;
   const persist = async () => {
     if (!repository) return;
-    const snapshot = {
-      rooms: roomService.exportDurableState(),
-      matches: matchStateMachine.exportDurableState(),
-    };
-    const write = persistenceQueue.then(() => repository.replace(snapshot));
-    persistenceQueue = write.catch(() => undefined);
-    await write;
+    persistenceRequested = true;
+    if (persistenceInFlight) return persistenceInFlight;
+    const write = (async () => {
+      persistenceRequested = false;
+      const snapshot = {
+        rooms: roomService.exportDurableState(),
+        matches: matchStateMachine.exportDurableState(),
+      };
+      await repository.replace(snapshot);
+    })();
+    const settled = write.finally(() => {
+      if (persistenceInFlight !== settled) return;
+      persistenceInFlight = null;
+      if (persistenceRequested) void persist().catch(() => undefined);
+    });
+    persistenceInFlight = settled;
+    await settled;
   };
 
   const restoreSnapshots = (
@@ -213,7 +240,9 @@ function registerRoomHandlers(
     }
   };
 
-  const executeMutation = async <T>(operation: () => T | Promise<T>): Promise<T> => {
+  const executeMutation = async <T>(
+    operation: () => T | Promise<T>,
+  ): Promise<T> => {
     const roomsBefore = roomService.exportDurableState();
     const matchesBefore = matchStateMachine.exportDurableState();
     pendingTransitionRooms.clear();
@@ -229,7 +258,8 @@ function registerRoomHandlers(
       } else {
         const roomsAfter = roomService.exportDurableState();
         const removedRoom = roomsBefore.some(
-          (room) => !roomsAfter.some((candidate) => candidate.code === room.code),
+          (room) =>
+            !roomsAfter.some((candidate) => candidate.code === room.code),
         );
         if (removedRoom) {
           matchStateMachine.pruneMissingRooms();
@@ -260,11 +290,15 @@ function registerRoomHandlers(
 
   const persistMutation = <T>(operation: () => T | Promise<T>): Promise<T> => {
     const execution = mutationQueue.then(() => executeMutation(operation));
-    mutationQueue = execution.then(() => undefined, () => undefined);
+    mutationQueue = execution.then(
+      () => undefined,
+      () => undefined,
+    );
     return execution;
   };
 
-  const playerKey = (session: Session) => `${session.roomCode}:${session.playerId}`;
+  const playerKey = (session: Session) =>
+    `${session.roomCode}:${session.playerId}`;
 
   const publishRoom = (roomCode: string) => {
     try {
@@ -318,20 +352,20 @@ function registerRoomHandlers(
         publishRoom(roomCode);
         return;
       }
-      void persist().then(() => publishRoom(roomCode)).catch(() => undefined);
+      void persist()
+        .then(() => publishRoom(roomCode))
+        .catch(() => undefined);
     },
   });
-  if (initialMatches.length > 0) matchStateMachine.restoreDurableState(initialMatches);
-  const cleanupTimer = setInterval(
-    () => {
-      const removed = roomService.purgeExpiredRooms();
-      if (removed > 0) {
-        matchStateMachine.pruneMissingRooms();
-        void persist().catch(() => undefined);
-      }
-    },
-    resourceLimits.roomCleanupIntervalMs,
-  );
+  if (initialMatches.length > 0)
+    matchStateMachine.restoreDurableState(initialMatches);
+  const cleanupTimer = setInterval(() => {
+    const removed = roomService.purgeExpiredRooms();
+    if (removed > 0) {
+      matchStateMachine.pruneMissingRooms();
+      void persist().catch(() => undefined);
+    }
+  }, resourceLimits.roomCleanupIntervalMs);
   cleanupTimer.unref();
   io.engine.on("close", () => {
     shuttingDown = true;
@@ -345,12 +379,14 @@ function registerRoomHandlers(
   ) => {
     const session = attachedSessions.get(socket.id);
     if (!session) return;
-    const sessionRule = kind === "drawing"
-      ? resourceLimits.drawingPerSession
-      : resourceLimits.submissionsPerSession;
-    const roomRule = kind === "drawing"
-      ? resourceLimits.drawingPerRoom
-      : resourceLimits.submissionsPerRoom;
+    const sessionRule =
+      kind === "drawing"
+        ? resourceLimits.drawingPerSession
+        : resourceLimits.submissionsPerSession;
+    const roomRule =
+      kind === "drawing"
+        ? resourceLimits.drawingPerRoom
+        : resourceLimits.submissionsPerRoom;
     rateLimiter.consume(
       `${kind}:session:${playerKey(session)}`,
       sessionRule,
@@ -439,7 +475,10 @@ function registerRoomHandlers(
       attached.roomCode !== session.roomCode ||
       attached.playerId !== session.playerId
     ) {
-      throw new RoomServiceError("UNAUTHORIZED", "Attach your session before changing the room.");
+      throw new RoomServiceError(
+        "UNAUTHORIZED",
+        "Attach your session before changing the room.",
+      );
     }
   };
 
@@ -486,7 +525,10 @@ function registerRoomHandlers(
             resourceLimits.roomCodeGuessesPerConnection,
             "room-code attempts from this connection",
           );
-          const attemptedCode = code.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 64);
+          const attemptedCode = code
+            .toUpperCase()
+            .replace(/[^A-Z0-9]/g, "")
+            .slice(0, 64);
           rateLimiter.consume(
             `join:code:${attemptedCode}`,
             resourceLimits.roomCodeGuessesPerCode,
@@ -570,7 +612,11 @@ function registerRoomHandlers(
               ) {
                 const target = io.sockets.sockets.get(socketId);
                 if (target) {
-                  emitSocketError(target, "UNAUTHORIZED", "You're no longer in this room.");
+                  emitSocketError(
+                    target,
+                    "UNAUTHORIZED",
+                    "You're no longer in this room.",
+                  );
                   await detach(target, false);
                 }
               }
@@ -624,7 +670,8 @@ function registerRoomHandlers(
         async ({ session }) => {
           assertAttached(socket, session);
           await persistMutation(() =>
-            matchStateMachine.rematch(attachedSessions.get(socket.id)!));
+            matchStateMachine.rematch(attachedSessions.get(socket.id)!),
+          );
           return {};
         },
       );
@@ -639,7 +686,9 @@ function registerRoomHandlers(
         acknowledge,
         async ({ session, prompt }) => {
           assertAttached(socket, session);
-          await persistMutation(() => matchStateMachine.selectPrompt(session, prompt));
+          await persistMutation(() =>
+            matchStateMachine.selectPrompt(session, prompt),
+          );
           return {};
         },
       );
@@ -656,9 +705,9 @@ function registerRoomHandlers(
           assertAttached(socket, session);
           enforceAttachedRateLimits(socket, "drawing");
           const authenticated = attachedSessions.get(socket.id)!;
-          const changed = await persistMutation(() =>
-            matchStateMachine.sendDrawOps(authenticated, ops));
+          const changed = matchStateMachine.sendDrawOps(authenticated, ops);
           if (changed) {
+            await persist();
             publishDrawingViews(authenticated.roomCode, authenticated.playerId);
           }
           return {};
@@ -677,7 +726,9 @@ function registerRoomHandlers(
           assertAttached(socket, session);
           enforceAttachedRateLimits(socket, "submissions");
           const authenticated = attachedSessions.get(socket.id)!;
-          await persistMutation(() => matchStateMachine.submitCanvas(authenticated));
+          await persistMutation(() =>
+            matchStateMachine.submitCanvas(authenticated),
+          );
           publishRoom(authenticated.roomCode);
           return {};
         },
@@ -695,7 +746,11 @@ function registerRoomHandlers(
           assertAttached(socket, session);
           enforceAttachedRateLimits(socket, "submissions");
           await persistMutation(() =>
-            matchStateMachine.submitRatings(attachedSessions.get(socket.id)!, ratings));
+            matchStateMachine.submitRatings(
+              attachedSessions.get(socket.id)!,
+              ratings,
+            ),
+          );
           return {};
         },
       );
@@ -749,7 +804,10 @@ function sendHttpError(
     .send(serviceErrorPayloadSchema.parse({ code, message }));
 }
 
-function isSpaNavigation(url: string, acceptHeader: string | undefined): boolean {
+function isSpaNavigation(
+  url: string,
+  acceptHeader: string | undefined,
+): boolean {
   if (!acceptHeader?.includes("text/html")) return false;
   const pathname = new URL(url, "http://drawoff.local").pathname;
   if (pathname === "/health" || pathname.startsWith("/socket.io")) return false;
@@ -771,10 +829,18 @@ export function registerFrontendAssets(
   });
 }
 
-export function registerHealthRoute(app: FastifyInstance, isReady: () => boolean): void {
+export function registerHealthRoute(
+  app: FastifyInstance,
+  isReady: () => boolean,
+): void {
   app.get("/health", async (_request, reply) => {
     if (!isReady()) {
-      return sendHttpError(reply, 503, "SERVICE_UNAVAILABLE", "Service is not ready.");
+      return sendHttpError(
+        reply,
+        503,
+        "SERVICE_UNAVAILABLE",
+        "Service is not ready.",
+      );
     }
 
     return reply.send(healthResponseSchema.parse({ status: "ready" }));
@@ -793,7 +859,9 @@ export function createServer(
     frontendAssetsDirectory?: string;
   } = {},
 ) {
-  const corsOrigins = validateCorsOrigins(options.corsOrigins ?? resolveCorsOrigins());
+  const corsOrigins = validateCorsOrigins(
+    options.corsOrigins ?? resolveCorsOrigins(),
+  );
   const resourceLimits = resolveResourceLimits(options.resourceLimits);
   const roomService = options.roomService ?? createRoomService();
   const app = Fastify({ logger: options.logger ?? true });
@@ -801,13 +869,16 @@ export function createServer(
     origin: corsOrigins,
     credentials: true,
   });
-  const io = new SocketIOServer<ClientSocketEvents, ServerSocketEvents>(app.server, {
-    maxHttpBufferSize: resourceLimits.maxInboundMessageBytes,
-    cors: {
-      origin: corsOrigins,
-      credentials: true,
+  const io = new SocketIOServer<ClientSocketEvents, ServerSocketEvents>(
+    app.server,
+    {
+      maxHttpBufferSize: resourceLimits.maxInboundMessageBytes,
+      cors: {
+        origin: corsOrigins,
+        credentials: true,
+      },
     },
-  });
+  );
   const matchStateMachine = registerRoomHandlers(
     io,
     roomService,
@@ -838,7 +909,12 @@ export function createServer(
         .type("text/html; charset=utf-8")
         .sendFile("_shell.html", { maxAge: 0, immutable: false });
     }
-    return sendHttpError(reply, 404, "NOT_FOUND", "The requested resource was not found.");
+    return sendHttpError(
+      reply,
+      404,
+      "NOT_FOUND",
+      "The requested resource was not found.",
+    );
   });
   app.setErrorHandler((error, _request, reply) => {
     const statusCode =
@@ -851,16 +927,36 @@ export function createServer(
 
     if (statusCode >= 400 && statusCode < 500) {
       if (statusCode === 400) {
-        return sendHttpError(reply, 400, "INVALID_INPUT", "The request is invalid.");
+        return sendHttpError(
+          reply,
+          400,
+          "INVALID_INPUT",
+          "The request is invalid.",
+        );
       }
       if (statusCode === 401) {
-        return sendHttpError(reply, 401, "UNAUTHORIZED", "Authentication is required.");
+        return sendHttpError(
+          reply,
+          401,
+          "UNAUTHORIZED",
+          "Authentication is required.",
+        );
       }
       if (statusCode === 403) {
-        return sendHttpError(reply, 403, "FORBIDDEN", "The request is not allowed.");
+        return sendHttpError(
+          reply,
+          403,
+          "FORBIDDEN",
+          "The request is not allowed.",
+        );
       }
       if (statusCode === 404) {
-        return sendHttpError(reply, 404, "NOT_FOUND", "The requested resource was not found.");
+        return sendHttpError(
+          reply,
+          404,
+          "NOT_FOUND",
+          "The requested resource was not found.",
+        );
       }
 
       return sendHttpError(
@@ -899,7 +995,9 @@ export async function createPersistentServer(
   try {
     await repository.migrate();
     const state = await repository.load();
-    const roomService = createRoomService({ now: options.matchStateMachineOptions?.now });
+    const roomService = createRoomService({
+      now: options.matchStateMachineOptions?.now,
+    });
     roomService.restoreDurableState(state.rooms);
     const server = createServer({
       logger: options.logger,
@@ -935,7 +1033,8 @@ export async function startServer(
 ): Promise<RunningServer> {
   const { app, io } = await createPersistentServer({
     corsOrigins: options.corsOrigins,
-    resourceLimits: options.resourceLimits ?? resourceLimitOptionsFromEnvironment(),
+    resourceLimits:
+      options.resourceLimits ?? resourceLimitOptionsFromEnvironment(),
     databaseUrl: options.databaseUrl,
     frontendAssetsDirectory: options.frontendAssetsDirectory,
   });

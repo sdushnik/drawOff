@@ -12,6 +12,7 @@ import {
 import { ServiceError, type GameService, type Unsubscribe } from "./gameService";
 
 const REQUEST_TIMEOUT_MS = 5_000;
+const MAX_QUEUED_DRAW_OPS = 4_096;
 
 export function isExplicitSessionRevocation(error: ServiceError): boolean {
   if (error.code === "ROOM_NOT_FOUND") return true;
@@ -37,6 +38,7 @@ export function createSocketGameService(serverUrl: string): GameService {
   let activeOnError: ((error: ServiceError) => void) | undefined;
   let hasConnected = false;
   let resumePromise: Promise<Session> | null = null;
+  let drawingPhase = false;
   const viewListeners = new Set<(view: PlayerView) => void>();
   const reactionListeners = new Set<(reaction: Reaction) => void>();
 
@@ -45,6 +47,7 @@ export function createSocketGameService(serverUrl: string): GameService {
     ops: DrawOp[];
     resolve: () => void;
     reject: (error: unknown) => void;
+    cancelled?: boolean;
   }> = [];
   let isProcessingDrawingQueue = false;
 
@@ -62,6 +65,14 @@ export function createSocketGameService(serverUrl: string): GameService {
       activeOnError?.(new ServiceError("NETWORK", "The server sent an invalid room update."));
       return;
     }
+    if (parsed.data.phase !== "DRAWING" && drawingPhase) {
+      const staleError = new ServiceError("WRONG_PHASE", "The drawing phase has ended.");
+      for (const entry of drawingQueue) {
+        entry.cancelled = true;
+        entry.reject(staleError);
+      }
+    }
+    drawingPhase = parsed.data.phase === "DRAWING";
     for (const listener of viewListeners) listener(parsed.data);
   };
   socket.on("state:update", onView);
@@ -131,7 +142,9 @@ export function createSocketGameService(serverUrl: string): GameService {
       };
       const onConnectError = (error: Error) => {
         cleanup();
-        reject(new ServiceError("NETWORK", error.message || "Could not connect to the game server."));
+        reject(
+          new ServiceError("NETWORK", error.message || "Could not connect to the game server."),
+        );
       };
 
       socket.once("connect", onConnect);
@@ -193,6 +206,10 @@ export function createSocketGameService(serverUrl: string): GameService {
 
         const current = drawingQueue[0];
         if (!current) break;
+        if (current.cancelled) {
+          drawingQueue.shift();
+          continue;
+        }
 
         try {
           await requestRaw("drawing:ops", { session: current.session, ops: current.ops });
@@ -254,6 +271,11 @@ export function createSocketGameService(serverUrl: string): GameService {
     sendDrawOps: async (session: Session, ops: DrawOp[]) => {
       if (ops.length === 0) return;
       return new Promise<void>((resolve, reject) => {
+        const queuedOps = drawingQueue.reduce((total, entry) => total + entry.ops.length, 0);
+        if (queuedOps + ops.length > MAX_QUEUED_DRAW_OPS) {
+          reject(new ServiceError("NETWORK", "The drawing queue is full; try drawing again."));
+          return;
+        }
         drawingQueue.push({ session, ops, resolve, reject });
         void processDrawingQueue();
       });
