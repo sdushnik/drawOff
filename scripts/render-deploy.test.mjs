@@ -20,6 +20,7 @@ function options(fetchImplementation) {
     apiKey: "test-api-key",
     commitSha,
     deployHookUrl: "https://api.render.com/deploy/srv-test?key=hook-secret",
+    healthUrl: "https://drawoff-development.onrender.com/health",
     serviceId: "srv-test",
     fetchImplementation,
     wait: async () => undefined,
@@ -54,7 +55,10 @@ describe("Render deployment verifier", () => {
       calls[1].requestOptions.headers.authorization,
       "Bearer test-api-key",
     );
-    assert.equal(calls.at(-1).url, "https://drawoff.onrender.com/health");
+    assert.equal(
+      calls.at(-1).url,
+      "https://drawoff-development.onrender.com/health",
+    );
     assert.equal(responses.length, 0);
   });
 
@@ -71,6 +75,21 @@ describe("Render deployment verifier", () => {
       ),
       /ended with status build_failed/u,
     );
-    assert.equal(urls.includes("https://drawoff.onrender.com/health"), false);
+    assert.equal(
+      urls.includes("https://drawoff-development.onrender.com/health"),
+      false,
+    );
+  });
+
+  it("rejects a health endpoint that could expose credentials", async () => {
+    await assert.rejects(
+      deployAndVerifyRender({
+        ...options(async () => {
+          throw new Error("fetch should not run");
+        }),
+        healthUrl: "https://user:password@drawoff-development.onrender.com/health",
+      }),
+      /must not contain credentials/u,
+    );
   });
 });

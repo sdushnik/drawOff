@@ -11,19 +11,31 @@ There is no second frontend server, process supervisor, or reverse proxy. The
 browser and Socket.IO use the same public origin. The image can be run directly
 with SQLite or as the single application process in the local PostgreSQL
 Compose topology below. PostgreSQL is never installed inside the DrawOff image.
-GitHub Actions verifies the same production topology and can deploy an exact,
-verified `main` commit to the existing Render service as described below.
+GitHub Actions verifies the same topology. A verified `main` push can deploy
+the exact commit to development only; production promotion is a separate,
+manual action as described below.
 
-## Free Render Blueprint
+## Render environments
 
-The root [`render.yaml`](../render.yaml) describes exactly two resources: one
-free Render Web Service built from the existing root `Dockerfile`, and one free
-Render PostgreSQL 18 database. The application is manually fixed at one
-instance. The Blueprint does not create a second frontend service, a worker,
-AWS infrastructure, CI/CD automation, or multi-instance coordination.
-Render's own commit-triggered auto-deploys are disabled. The repository CI/CD
-workflow is the only automated deploy path, and that path is disabled by
-default with the `RENDER_DEPLOY_ENABLED` repository variable.
+The root [`render.yaml`](../render.yaml) is the existing **production**
+Blueprint. Its `drawoff` service, `drawoff-postgres` database, and
+<https://drawoff.onrender.com> origin remain production. Do not reconnect or
+apply this Blueprint as part of development setup.
+
+[`render-development.yaml`](../render-development.yaml) is the
+**development** Blueprint. It declares a distinct `drawoff-development` web
+service and `drawoff-development-postgres` PostgreSQL 18 database. The service
+and database names, database name, generated connection string, public origin,
+deploy hook, and service ID are separate from production, so development
+activity cannot read or modify production database state. Never copy a
+production `DATABASE_URL` into development.
+
+Each Blueprint describes one free Render Web Service built from the root
+`Dockerfile` and one free PostgreSQL 18 database. Each application is fixed at
+one instance. Neither Blueprint creates a second frontend service, worker, AWS
+infrastructure, CI/CD automation, or multi-instance coordination. Render's
+commit-triggered auto-deploys are disabled for both services; GitHub Actions is
+the only automated deploy path.
 
 `DATABASE_URL` comes from Render's `connectionString` resource reference, so
 the generated database credentials are never stored in Git. `PORT` is set to
@@ -32,8 +44,8 @@ pre-deploy command is unavailable on free web services, the Docker command runs
 the compiled, repeatable Kysely migration entry point and starts Fastify only
 after migration succeeds. Render checks `GET /health` before routing traffic.
 
-`FRONTEND_ORIGINS` self-references Render's automatically supplied
-`RENDER_EXTERNAL_URL`. The production SPA already selects `window.location.origin`
+`FRONTEND_ORIGINS` self-references each service's automatically supplied
+`RENDER_EXTERNAL_URL`. The SPA already selects `window.location.origin`
 when no separate game server is configured, so HTTP and Socket.IO share the
 service's `https://*.onrender.com` origin. Render redirects HTTP to HTTPS,
 terminates TLS, and supports WebSocket upgrades; browsers therefore use secure
@@ -42,8 +54,9 @@ WSS without a committed `VITE_GAME_SERVER_URL` or any database value in a
 
 ### Validate and apply manually
 
-The repository test parses the Blueprint and enforces its topology, resource
-references, migration command, port, and health path:
+The repository tests parse both Blueprints and enforce their free-plan
+topology, distinct resource/database names, resource references, migration
+command, port, health path, and lack of committed connection strings:
 
 ```sh
 npm run test:orchestration
@@ -55,12 +68,18 @@ not create, update, sync, or deploy resources:
 
 ```sh
 render blueprints validate render.yaml
+render blueprints validate render-development.yaml
 ```
 
-To provision a new environment later, connect the repository as a new Blueprint
-in the Render Dashboard, review the two-resource plan, and apply it. No secret
-values need to be entered for this Blueprint. The CI/CD workflow does not
-provision, replace, or reconfigure either existing Render resource.
+To provision development, connect the repository as a new Blueprint in the
+Render Dashboard and select `render-development.yaml`. Review that the plan
+contains only the named free development web service and free development
+database before applying it. If the Render workspace cannot allocate another
+free database, stop; do not select a paid plan or reuse production. A different
+workspace that is eligible for free resources is safe because CI/CD uses
+environment-specific configuration. No secret values need to be entered in the
+Blueprint. The CI/CD workflow does not provision, replace, or reconfigure live
+Render resources.
 
 After a successful manual deployment, replace the example hostname and verify
 the public readiness endpoint and a forced same-origin WebSocket connection:
@@ -87,48 +106,71 @@ isolated Docker Compose stack with PostgreSQL 18. A failed run uploads the
 Playwright HTML report and any retained traces, screenshots, and videos for 14
 days.
 
-Production deployment runs only after that verification job succeeds on a push
-to `main` and the repository variable `RENDER_DEPLOY_ENABLED` is exactly
-`true`. The deploy job is serialized, adds the verified GitHub commit SHA as
-the deploy hook's `ref`, waits for that same commit's Render deployment to
-reach `live`, and then requires
-`https://drawoff.onrender.com/health` to return exactly
-`{"status":"ready"}`. Render's Blueprint auto-deploy setting must remain off.
+After verification, a push to `main` can run only the development deploy job,
+and only when the repository variable `DEVELOPMENT_RENDER_DEPLOY_ENABLED` is
+exactly `true`. The production job does not accept push events. It runs only
+when a maintainer starts **CI/CD → Run workflow** on `main` and checks
+`deploy_production`. Both jobs are serialized per environment, add the verified
+GitHub commit SHA to the selected environment's deploy hook, wait for that
+exact commit to reach `live`, and require the configured health URL to return
+exactly `{"status":"ready"}`.
 
 ### Required Actions configuration
 
-Keep each Render value under **Settings → Secrets and variables → Actions →
-Secrets**. Do not use repository variables for these values:
+Create GitHub environments named `development` and `production`. In each
+environment, add these **environment secrets** using values from that
+environment's Render service:
 
-- `RENDER_DEPLOY_HOOK_URL` — the `drawoff` web service's secret deploy hook URL
-  from its Render Settings page.
-- `RENDER_API_KEY` — a Render API key allowed to read the service's deploy
-  status. The hook, not this key, triggers the deployment.
-- `RENDER_SERVICE_ID` — the existing `drawoff` web service ID. It is stored as
-  a secret as a conservative repository policy even though it is not an API
-  credential.
+- `DRAWOFF_RENDER_DEPLOY_HOOK_URL` — that service's secret deploy hook URL.
+- `DRAWOFF_RENDER_API_KEY` — a Render API key allowed to read that service's
+  deploy status. The hook, not this key, triggers the deployment.
+- `DRAWOFF_RENDER_SERVICE_ID` — that environment's web service ID. It is kept
+  as a secret under the repository's conservative policy.
 
-The public repository variable `RENDER_DEPLOY_ENABLED` is initialized to
-`false`. Configure all three secrets first, confirm the Render service is linked
-to this repository and `render.yaml` still has `autoDeployTrigger: off`, then
-enable deployment:
+Also add the environment variable `DRAWOFF_RENDER_HEALTH_URL`, containing only
+that service's public HTTPS `/health` URL. The deployment script rejects a
+non-HTTPS URL or one containing credentials. Do not create repository-level
+secrets with the new `DRAWOFF_RENDER_*` names: environment scope is what keeps
+development and production configuration independent. Existing legacy
+repository secrets are not referenced by the workflow and can be removed after
+both environments are configured and tested. The legacy repository variable
+`RENDER_DEPLOY_ENABLED` is also no longer referenced.
+
+Before enabling automatic development deployment, confirm its Blueprint has
+`autoDeployTrigger: off`, verify all three development secrets and its health
+variable, then create the public repository gate:
 
 ```sh
-gh variable set RENDER_DEPLOY_ENABLED --body true
+gh variable set DEVELOPMENT_RENDER_DEPLOY_ENABLED --body true
 ```
 
-The next successful push to `main` will deploy. A missing or invalid secret
-causes the enabled deploy job to fail without printing response bodies, hook
-URLs, authorization headers, or secret values. To disable deployment again:
+The next successful push to `main` deploys development and cannot start the
+production job. A missing or invalid value fails safely without printing
+response bodies, hook URLs, authorization headers, or secret values. To pause
+development deployment:
 
 ```sh
-gh variable set RENDER_DEPLOY_ENABLED --body false
+gh variable set DEVELOPMENT_RENDER_DEPLOY_ENABLED --body false
 ```
+
+For production, configure the `production` environment with the existing
+`drawoff` service's values and set its health URL to
+`https://drawoff.onrender.com/health`. Add required reviewers to the production
+environment when the repository plan supports that protection. Promote only a
+commit already observed in development: open the CI/CD workflow, select `main`,
+check `deploy_production`, and run it. The workflow repeats the full
+verification before deployment; it never copies development database state.
 
 ### Rollback
 
-First set `RENDER_DEPLOY_ENABLED=false` so another push cannot start a new
-production deployment during recovery. In the Render Dashboard, open the
+First set `DEVELOPMENT_RENDER_DEPLOY_ENABLED=false` if development also needs
+to be paused. For a development rollback, open the
+`drawoff-development` service's **Deploys** page, roll back to the previous
+successful deployment, then verify its configured health URL and same-origin
+WebSocket connection. Development rollback never changes the production
+service or either database.
+
+A push cannot start production deployment. For a production rollback, open the
 `drawoff` service's **Deploys** page, select the previous successful deployment,
 and choose **Rollback**. Wait for Render to mark it live, then verify:
 
@@ -140,7 +182,7 @@ The exact expected body is `{"status":"ready"}`. A Render rollback restores a
 prior application build but does not reverse PostgreSQL migrations; DrawOff's
 forward-only migrations therefore need to remain compatible with the preceding
 application version. Fix or revert the repository change, let the full workflow
-pass, and only then set `RENDER_DEPLOY_ENABLED=true` again.
+pass in development, and then perform a new explicit production promotion.
 
 ### Free-tier limits
 

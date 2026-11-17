@@ -2,7 +2,6 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const renderApiOrigin = "https://api.render.com";
-const productionHealthUrl = "https://drawoff.onrender.com/health";
 const activeStatuses = new Set([
   "created",
   "queued",
@@ -87,7 +86,7 @@ export async function deployAndVerifyRender({
   queuedLookupIntervalMs = 5_000,
   healthAttempts = 12,
   healthIntervalMs = 10_000,
-  healthUrl = productionHealthUrl,
+  healthUrl,
 }) {
   if (!/^[0-9a-f]{40}$/u.test(commitSha))
     throw new Error(
@@ -103,6 +102,17 @@ export async function deployAndVerifyRender({
   if (hookUrl.protocol !== "https:")
     throw new Error("RENDER_DEPLOY_HOOK_URL must use HTTPS.");
   hookUrl.searchParams.set("ref", commitSha);
+
+  let parsedHealthUrl;
+  try {
+    parsedHealthUrl = new URL(healthUrl);
+  } catch {
+    throw new Error("RENDER_HEALTH_URL must be a valid URL.");
+  }
+  if (parsedHealthUrl.protocol !== "https:")
+    throw new Error("RENDER_HEALTH_URL must use HTTPS.");
+  if (parsedHealthUrl.username || parsedHealthUrl.password)
+    throw new Error("RENDER_HEALTH_URL must not contain credentials.");
 
   const triggerResponse = await safeFetch(
     fetchImplementation,
@@ -176,21 +186,21 @@ export async function deployAndVerifyRender({
   for (let attempt = 1; attempt <= healthAttempts; attempt += 1) {
     const response = await safeFetch(
       fetchImplementation,
-      healthUrl,
+      parsedHealthUrl,
       {
         headers: { "cache-control": "no-cache" },
         signal: AbortSignal.timeout(30_000),
       },
-      "Production health check",
+      "Render health check",
     );
     const body = await response.text();
     if (response.status === 200 && body === '{"status":"ready"}') {
-      log.log("Verified production health endpoint.");
+      log.log("Verified Render health endpoint.");
       return;
     }
     if (attempt === healthAttempts)
       throw new Error(
-        "Production health endpoint did not return the ready response.",
+        "Render health endpoint did not return the ready response.",
       );
     await wait(healthIntervalMs);
   }
@@ -208,6 +218,7 @@ async function main() {
     apiKey: requiredEnvironment("RENDER_API_KEY"),
     commitSha: requiredEnvironment("RENDER_COMMIT_SHA"),
     deployHookUrl: requiredEnvironment("RENDER_DEPLOY_HOOK_URL"),
+    healthUrl: requiredEnvironment("RENDER_HEALTH_URL"),
     serviceId: requiredEnvironment("RENDER_SERVICE_ID"),
   });
 }

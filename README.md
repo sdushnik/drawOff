@@ -191,23 +191,26 @@ The backend build is emitted to `backend/dist`; start it with
 ## Deployment and CI/CD
 
 DrawOff uses Docker Compose for production-like local and CI verification.
-Render does not execute the repository's Compose file directly. Instead, the
-root [`render.yaml`](render.yaml) Blueprint deploys the same application
-[`Dockerfile`](Dockerfile) as a single free Render Web Service and connects it
-to Render PostgreSQL 18. The deployed application is available at
-<https://drawoff.onrender.com>, with readiness reported by
-<https://drawoff.onrender.com/health>.
+Render does not execute the repository's Compose file directly. The root
+[`render.yaml`](render.yaml) remains the existing production Blueprint, whose
+application is available at <https://drawoff.onrender.com>. The separate
+[`render-development.yaml`](render-development.yaml) Blueprint defines an
+independent development web service and PostgreSQL database. Both use the same
+application [`Dockerfile`](Dockerfile), free plans, and secret-free resource
+references, but they do not share database state.
 
 The [GitHub Actions workflow](.github/workflows/ci-cd.yml) runs workspace unit
 and integration tests, builds the production application and Docker image, and
 runs the complete Playwright suite against an isolated Compose stack with
-PostgreSQL 18. Only a verified `main` commit can proceed to Render deployment.
-Deployment is controlled by the `RENDER_DEPLOY_ENABLED` repository variable and
-the documented Render secrets; Render's own automatic deploys remain disabled
-so that CI/CD is the only automated deployment path.
+PostgreSQL 18. A verified push to `main` can deploy only to the GitHub
+`development` environment. Production deployment requires an explicit manual
+workflow run from `main` through the GitHub `production` environment. Render's
+own automatic deploys remain disabled so CI/CD is the only automated deployment
+path.
 
-Production deployment, browser/Socket.IO smoke testing, rollback, and measured
-capacity workflows are documented in [`_docs/deployment.md`](_docs/deployment.md).
+Environment setup, production promotion, browser/Socket.IO smoke testing,
+rollback, and measured capacity workflows are documented in
+[`_docs/deployment.md`](_docs/deployment.md).
 See
 [`_docs/deployment.md`](_docs/deployment.md#github-actions-cicd) for setup,
 failure artifacts, health verification, and rollback.

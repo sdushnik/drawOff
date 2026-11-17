@@ -3,17 +3,25 @@ import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import { parse } from "yaml";
 
-const blueprintPath = new URL("../render.yaml", import.meta.url);
+const productionBlueprintPath = new URL("../render.yaml", import.meta.url);
+const developmentBlueprintPath = new URL(
+  "../render-development.yaml",
+  import.meta.url,
+);
 const dockerfilePath = new URL("../Dockerfile", import.meta.url);
 
 function environmentVariable(service, key) {
   return service.envVars.find((variable) => variable.key === key);
 }
 
-test("Render Blueprint keeps the free deployment single-instance and secret-free", async () => {
-  const source = await readFile(blueprintPath, "utf8");
+async function readBlueprint(path) {
+  const source = await readFile(path, "utf8");
   const blueprint = parse(source);
 
+  return { blueprint, source };
+}
+
+async function assertFreeSecretlessBlueprint({ blueprint, source }) {
   assert.equal(blueprint.version, "1");
   assert.equal(blueprint.services.length, 1);
   assert.equal(blueprint.databases.length, 1);
@@ -75,4 +83,41 @@ test("Render Blueprint keeps the free deployment single-instance and secret-free
     { plan: "free", postgresMajorVersion: "18" },
   );
   assert.equal(source.includes("postgresql://"), false);
+}
+
+test("production Render Blueprint remains free, single-instance, and secret-free", async () => {
+  const result = await readBlueprint(productionBlueprintPath);
+
+  await assertFreeSecretlessBlueprint(result);
+  assert.equal(result.blueprint.services[0].name, "drawoff");
+  assert.equal(result.blueprint.databases[0].name, "drawoff-postgres");
+  assert.equal(result.blueprint.databases[0].databaseName, "drawoff");
+});
+
+test("development Render Blueprint has independent free resources and database state", async () => {
+  const production = await readBlueprint(productionBlueprintPath);
+  const development = await readBlueprint(developmentBlueprintPath);
+
+  await assertFreeSecretlessBlueprint(development);
+  assert.equal(development.blueprint.services[0].name, "drawoff-development");
+  assert.equal(
+    development.blueprint.databases[0].name,
+    "drawoff-development-postgres",
+  );
+  assert.equal(
+    development.blueprint.databases[0].databaseName,
+    "drawoff_development",
+  );
+  assert.notEqual(
+    development.blueprint.services[0].name,
+    production.blueprint.services[0].name,
+  );
+  assert.notEqual(
+    development.blueprint.databases[0].name,
+    production.blueprint.databases[0].name,
+  );
+  assert.notEqual(
+    development.blueprint.databases[0].databaseName,
+    production.blueprint.databases[0].databaseName,
+  );
 });
