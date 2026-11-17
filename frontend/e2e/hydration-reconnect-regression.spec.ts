@@ -78,7 +78,10 @@ test("saved room hydration and offline Artist drawing survive an authenticated r
   expect(await authoritativeActionCount(host)).toBe(0);
 
   await artist.context.setOffline(true);
-  await expect(host.page.getByRole("alertdialog", { name: "Game paused" })).toBeVisible();
+  await expect(host.page.getByRole("alertdialog", { name: "Game paused" })).toBeVisible({
+    // A production WebSocket can remain attached until Socket.IO's heartbeat expires.
+    timeout: 50_000,
+  });
   await drawCanvasStroke(artist.page, [0.12, 0.18], [0.52, 0.58]);
   const offlineInk = await canvasInkPixelCount(artist.page.getByLabel("Your canvas"));
   const offlineCanvasHash = await renderedCanvasHash(artist.page.getByLabel("Your canvas"));
