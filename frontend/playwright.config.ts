@@ -1,6 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const applicationUrl = process.env["DRAWOFF_E2E_BASE_URL"] ?? "http://127.0.0.1:8080";
+const projects = [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }];
+if (process.env["DRAWOFF_E2E_WEBKIT"] === "1") {
+  projects.push({ name: "webkit", use: { ...devices["Desktop Safari"] } });
+}
 
 export default defineConfig({
   testDir: "./e2e",
@@ -18,8 +22,5 @@ export default defineConfig({
     screenshot: "only-on-failure",
     video: "retain-on-failure",
   },
-  projects: [
-    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
-    { name: "webkit", use: { ...devices["Desktop Safari"] } },
-  ],
+  projects,
 });
