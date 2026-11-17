@@ -1,8 +1,11 @@
 # DrawOff
 
-DrawOff is a multiplayer drawing game project. The repository contains a React,
-TypeScript, Vite, and Tailwind frontend and a minimal Node.js, TypeScript,
-Fastify, and Socket.IO backend entry point.
+DrawOff is a responsive browser-based multiplayer drawing game. The repository
+is an npm workspace containing a React, TypeScript, Vite, and Tailwind frontend,
+an authoritative Node.js, TypeScript, Fastify, and Socket.IO backend, and shared
+runtime contracts. Kysely provides persistent SQLite and PostgreSQL storage.
+The production image builds the frontend as static assets and serves the SPA,
+`/health`, and same-origin Socket.IO from one Fastify process.
 
 ## Prerequisites
 
@@ -71,7 +74,7 @@ POSTGRES_TEST_DATABASE_URL='postgresql://drawoff_test_user:LOCAL_TEST_PASSWORD@1
 ```
 
 The test command refuses PostgreSQL databases whose name does not begin with
-`drawoff_test`. The complete standalone PostgreSQL 16 container workflow and
+`drawoff_test`. The complete standalone PostgreSQL 18 container workflow and
 credential-safe deployment examples are in
 [`_docs/deployment.md`](_docs/deployment.md).
 
@@ -185,13 +188,26 @@ npm run build
 The backend build is emitted to `backend/dist`; start it with
 `npm run start --workspace=@drawoff/backend`.
 
-Production-like deployment, browser/Socket.IO smoke testing, and measured
+## Deployment and CI/CD
+
+DrawOff uses Docker Compose for production-like local and CI verification.
+Render does not execute the repository's Compose file directly. Instead, the
+root [`render.yaml`](render.yaml) Blueprint deploys the same application
+[`Dockerfile`](Dockerfile) as a single free Render Web Service and connects it
+to Render PostgreSQL 18. The deployed application is available at
+<https://drawoff.onrender.com>, with readiness reported by
+<https://drawoff.onrender.com/health>.
+
+The [GitHub Actions workflow](.github/workflows/ci-cd.yml) runs workspace unit
+and integration tests, builds the production application and Docker image, and
+runs the complete Playwright suite against an isolated Compose stack with
+PostgreSQL 18. Only a verified `main` commit can proceed to Render deployment.
+Deployment is controlled by the `RENDER_DEPLOY_ENABLED` repository variable and
+the documented Render secrets; Render's own automatic deploys remain disabled
+so that CI/CD is the only automated deployment path.
+
+Production deployment, browser/Socket.IO smoke testing, rollback, and measured
 capacity workflows are documented in [`_docs/deployment.md`](_docs/deployment.md).
-The root [`render.yaml`](render.yaml) is a validated, single-instance free
-Render Blueprint for the existing Docker image and a free Render PostgreSQL
-database. GitHub Actions verifies pull requests and `main` pushes through the
-full PostgreSQL 18 Compose/Playwright path; production deployment remains
-disabled until its documented secrets are configured and the safe repository
-enablement variable is explicitly switched on. See
+See
 [`_docs/deployment.md`](_docs/deployment.md#github-actions-cicd) for setup,
 failure artifacts, health verification, and rollback.
