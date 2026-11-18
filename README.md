@@ -112,6 +112,11 @@ the separate [`observability/`](observability/README.md) Compose project. It
 accepts the same OTLP endpoint without coupling its lifecycle or storage to the
 application stack.
 
+The optional local-only [`on-call-engineer/`](on-call-engineer/README.md)
+proof of concept can turn a firing drawing-failure alert into a redacted
+dry-run, deterministic fake report, or explicitly enabled read-only Codex
+incident report. It is not deployed and performs no remediation or Git action.
+
 ## Local PostgreSQL Compose stack
 
 The root [`compose.yaml`](compose.yaml) builds the existing DrawOff production
