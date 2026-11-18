@@ -186,6 +186,13 @@ the deployment environment and version. Do not add player names or IDs,
 session tokens, room codes, prompts, ratings, drawing contents, arbitrary
 errors, request URLs, or database data to telemetry.
 
+The separate local observability project includes one Prometheus alert for
+sustained drawing-operation failures. It requires both meaningful volume and a
+high failure ratio for 10 minutes, carries environment/version and fixed
+owner/severity context, and links to its checked-in runbook. It does not
+configure Alertmanager or notification credentials; validate its firing and
+resolution safely with `npm run test:observability:alerts`.
+
 Telemetry is disabled unless `DRAWOFF_TELEMETRY_ENABLED` is exactly `true`.
 When disabled, the OpenTelemetry APIs remain no-op and no collector connection
 is attempted. When enabled, traces, metrics, and logs use the official

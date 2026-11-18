@@ -73,12 +73,38 @@ Loki and Prometheus. Direct readiness endpoints are also available at
 
 The focused smoke command starts an isolated project, creates a real DrawOff
 room, verifies its resource-filtered gameplay counter, queries logs and traces,
-checks the provisioned dashboard and data sources, and removes its containers
-and volumes afterward:
+checks the provisioned dashboard, data sources, and inactive alert rule, and
+removes its containers and volumes afterward:
 
 ```sh
 npm run smoke:observability
 ```
+
+## Drawing failure alert
+
+Prometheus loads `DrawOffSustainedDrawingOperationFailures` from the checked-in
+rules directory. It is scoped to `socket.io` / `drawing:ops` and becomes
+pending only when a five-minute window has both:
+
+- more than a 20% failure ratio; and
+- at least five failed drawing requests.
+
+The condition must remain true for 10 minutes before firing. Alert instances
+retain the bounded `deployment_environment_name` and `service_version` labels
+and add fixed `severity=warning` and `owner=gameplay-backend` labels. The alert
+links to the DrawOff dashboard and the
+[`drawing-operation-failures` runbook](runbooks/drawing-operation-failures.md).
+
+Validate the rule and safely simulate inactive, firing, and resolved states:
+
+```sh
+npm run test:observability:alerts
+```
+
+This uses `promtool` with synthetic counter series inside the pinned Prometheus
+container. It does not send invalid requests to DrawOff or deliver a
+notification. With the stack running, inspect the real inactive rule at
+<http://127.0.0.1:9090/alerts>.
 
 ## Stop and reset
 

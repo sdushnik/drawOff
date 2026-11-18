@@ -1,0 +1,38 @@
+rule_files:
+  - /etc/prometheus/rules/drawing-operation-failures.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: isolated failures stay inactive while sustained impact fires and resolves
+    interval: 1m
+    input_series:
+      - series: 'drawoff_backend_operations_total{drawoff_operation_kind="socket.io",drawoff_operation_name="drawing:ops",deployment_environment_name="local-impact",service_version="test-version"}'
+        values: '0 10 20 30 40 50 60 70 80 90 100 110 120 130 140 150 160 170 180 190 200 210 220 230 240'
+      - series: 'drawoff_backend_operation_failures_total{drawoff_operation_kind="socket.io",drawoff_operation_name="drawing:ops",deployment_environment_name="local-impact",service_version="test-version"}'
+        values: '0 0 0 0 0 3 6 9 12 15 18 21 24 27 30 33 36 39 42 42 42 42 42 42 42'
+      - series: 'drawoff_backend_operations_total{drawoff_operation_kind="socket.io",drawoff_operation_name="drawing:ops",deployment_environment_name="isolated",service_version="test-version"}'
+        values: '0 10 20 30 40 50 60 70 80 90 100 110 120 130 140 150 160 170 180 190 200 210 220 230 240'
+      - series: 'drawoff_backend_operation_failures_total{drawoff_operation_kind="socket.io",drawoff_operation_name="drawing:ops",deployment_environment_name="isolated",service_version="test-version"}'
+        values: '0 0 0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 17m
+        alertname: DrawOffSustainedDrawingOperationFailures
+        exp_alerts: []
+      - eval_time: 18m
+        alertname: DrawOffSustainedDrawingOperationFailures
+        exp_alerts:
+          - exp_labels:
+              alertname: DrawOffSustainedDrawingOperationFailures
+              deployment_environment_name: local-impact
+              service_version: test-version
+              severity: warning
+              owner: gameplay-backend
+            exp_annotations:
+              summary: Sustained DrawOff drawing-operation failures
+              description: Drawing operations in local-impact at version test-version have exceeded a 20% failure ratio with at least five failures per five minutes for 10 minutes.
+              dashboard_url: http://127.0.0.1:3001/d/drawoff-gameplay/drawoff-gameplay-overview?var-environment=local-impact&var-version=test-version
+              runbook_url: https://github.com/sdushnik/drawOff/blob/main/observability/runbooks/drawing-operation-failures.md
+      - eval_time: 20m
+        alertname: DrawOffSustainedDrawingOperationFailures
+        exp_alerts: []

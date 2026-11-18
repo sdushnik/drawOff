@@ -152,7 +152,14 @@ try {
   assert.ok(
     grafanaDashboards.some((dashboard) => dashboard.uid === "drawoff-gameplay"),
   );
-  console.log("PASS: gameplay metrics, Loki logs, Tempo traces, and the Grafana dashboard verified.");
+  const prometheusRules = await json(
+    "http://127.0.0.1:9090/api/v1/rules?type=alert",
+  );
+  const drawingAlert = prometheusRules.data?.groups
+    ?.flatMap((group) => group.rules)
+    .find((rule) => rule.name === "DrawOffSustainedDrawingOperationFailures");
+  assert.equal(drawingAlert?.state, "inactive");
+  console.log("PASS: gameplay telemetry, dashboard, and inactive drawing-failure alert verified.");
 } catch (error) {
   failed = true;
   console.error(error);

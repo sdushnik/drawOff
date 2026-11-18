@@ -1,0 +1,44 @@
+groups:
+  - name: drawoff-drawing
+    rules:
+      - alert: DrawOffSustainedDrawingOperationFailures
+        expr: |
+          (
+            sum by (deployment_environment_name, service_version) (
+              rate(drawoff_backend_operation_failures_total{
+                drawoff_operation_kind="socket.io",
+                drawoff_operation_name="drawing:ops"
+              }[5m])
+            )
+            /
+            clamp_min(
+              sum by (deployment_environment_name, service_version) (
+                rate(drawoff_backend_operations_total{
+                  drawoff_operation_kind="socket.io",
+                  drawoff_operation_name="drawing:ops"
+                }[5m])
+              ),
+              0.001
+            )
+          ) > 0.20
+          and on (deployment_environment_name, service_version)
+          sum by (deployment_environment_name, service_version) (
+            increase(drawoff_backend_operation_failures_total{
+              drawoff_operation_kind="socket.io",
+              drawoff_operation_name="drawing:ops"
+            }[5m])
+          ) >= 5
+        for: 10m
+        labels:
+          severity: warning
+          owner: gameplay-backend
+        annotations:
+          summary: Sustained DrawOff drawing-operation failures
+          description: >-
+            Drawing operations in {{ $labels.deployment_environment_name }} at
+            version {{ $labels.service_version }} have exceeded a 20% failure
+            ratio with at least five failures per five minutes for 10 minutes.
+          dashboard_url: >-
+            http://127.0.0.1:3001/d/drawoff-gameplay/drawoff-gameplay-overview?var-environment={{ $labels.deployment_environment_name }}&var-version={{ $labels.service_version }}
+          runbook_url: >-
+            https://github.com/sdushnik/drawOff/blob/main/observability/runbooks/drawing-operation-failures.md

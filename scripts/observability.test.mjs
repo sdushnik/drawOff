@@ -8,6 +8,7 @@ const read = (path) => readFileSync(path, "utf8");
 const composeText = read("observability/compose.yaml");
 const compose = parse(composeText);
 const collector = parse(read("observability/otel-collector.yaml"));
+const prometheus = parse(read("observability/prometheus.yaml"));
 const grafana = parse(
   read("observability/grafana/provisioning/datasources/datasources.yaml"),
 );
@@ -63,6 +64,15 @@ test("collector routes each OTLP signal to its intended backend", () => {
   assert.deepEqual(collector.service.pipelines.traces.exporters, ["otlphttp/tempo"]);
   assert.equal(collector.exporters["otlphttp/loki"].endpoint, "http://loki:3100/otlp");
   assert.equal(collector.exporters["otlphttp/tempo"].endpoint, "http://tempo:4318");
+});
+
+test("Prometheus loads the checked-in DrawOff alert rules", () => {
+  assert.deepEqual(prometheus.rule_files, ["/etc/prometheus/rules/*.yaml"]);
+  assert.ok(
+    compose.services.prometheus.volumes.includes(
+      "./prometheus/rules:/etc/prometheus/rules:ro",
+    ),
+  );
 });
 
 test("Grafana provisions linked Prometheus, Loki, and Tempo data sources", () => {
