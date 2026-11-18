@@ -518,6 +518,10 @@ export class MatchStateMachine {
   }
 
   sendDrawOps(session: Session, ops: DrawOp[]): boolean {
+    return this.sendDrawOpsCount(session, ops) > 0;
+  }
+
+  sendDrawOpsCount(session: Session, ops: DrawOp[]): number {
     const { player, progress } = this.requireArtistDrawing(session);
     this.requireBeforeDeadline(progress);
     const drawing = progress.canvases.get(player.id)!;
@@ -528,6 +532,7 @@ export class MatchStateMachine {
     const next = cloneCanvas(drawing.canvas);
     const previousSequence = drawing.sequence;
     let sequence = previousSequence;
+    let acceptedOperations = 0;
     const operations = new Map(
       [...drawing.operations].map(([id, entry]) => [
         id,
@@ -580,12 +585,15 @@ export class MatchStateMachine {
           "The drawing operation exceeds the configured room canvas history limit.",
         );
       }
-      if (next.rev !== previousRevision) sequence += 1;
+      if (next.rev !== previousRevision) {
+        sequence += 1;
+        acceptedOperations += 1;
+      }
     }
     drawing.canvas = next;
     drawing.sequence = sequence;
     drawing.operations = operations;
-    return sequence !== previousSequence;
+    return acceptedOperations;
   }
 
   submitCanvas(session: Session): void {

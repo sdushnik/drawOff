@@ -37,16 +37,32 @@ DATABASE_URL='sqlite:./data/drawoff-telemetry.sqlite' \
 npm run dev --workspace @drawoff/backend
 ```
 
-Exercise `http://127.0.0.1:3000/health` and a Socket.IO game action. The
-application stack remains independent: if DrawOff is instead running inside
-its own Compose network, configure a host-reachable Collector address for that
-container rather than adding it to this project.
+Exercise `http://127.0.0.1:3000/health`, create a room, join players, start a
+match, and draw. Those successful authoritative actions generate the gameplay
+metrics below. Rejected backend requests generate the bounded failure counter.
+The application stack remains independent: if DrawOff is instead running
+inside its own Compose network, configure a host-reachable Collector address
+for that container rather than adding it to this project.
 
 ## Verify
 
-Open Grafana at <http://127.0.0.1:3001> and use **Explore**:
+Open Grafana at <http://127.0.0.1:3001>. The **DrawOff / DrawOff gameplay
+overview** dashboard is provisioned automatically with **Environment** and
+**Deployed version** filters. It contains panels for:
 
-- Prometheus: query `drawoff_backend_operations_total`.
+- `drawoff_gameplay_rooms_created_total`
+- `drawoff_gameplay_rooms_active`
+- `drawoff_gameplay_players_active`
+- `drawoff_gameplay_matches_started_total`
+- `drawoff_gameplay_drawing_operations_total`
+- `drawoff_backend_operation_failures_total`
+
+Gameplay series have no event labels. The failure counter has only
+`drawoff_operation_kind` and `drawoff_operation_name`; environment and version
+come from the bounded resource identity. Use **Explore** for direct queries:
+
+- Prometheus: query `drawoff_gameplay_rooms_created_total` or
+  `drawoff_gameplay_players_active`.
 - Loki: query `{service_name="drawoff-backend"}`.
 - Tempo: search with `{ resource.service.name = "drawoff-backend" }`.
 
@@ -55,9 +71,10 @@ Loki and Prometheus. Direct readiness endpoints are also available at
 <http://127.0.0.1:9090/-/ready>, <http://127.0.0.1:3100/ready>, and
 <http://127.0.0.1:3200/ready>.
 
-The focused smoke command starts an isolated project, emits real DrawOff
-health-operation telemetry, queries all three backends, checks Grafana's data
-sources, and removes its containers and volumes afterward:
+The focused smoke command starts an isolated project, creates a real DrawOff
+room, verifies its resource-filtered gameplay counter, queries logs and traces,
+checks the provisioned dashboard and data sources, and removes its containers
+and volumes afterward:
 
 ```sh
 npm run smoke:observability

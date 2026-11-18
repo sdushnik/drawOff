@@ -210,6 +210,22 @@ export class RoomService {
     }));
   }
 
+  /** Return aggregate process state only; no room or player identifiers leave the service. */
+  getGameplayActivity(): { activeRooms: number; activePlayers: number } {
+    const now = this.readClock();
+    let activeRooms = 0;
+    let activePlayers = 0;
+    for (const room of this.rooms.values()) {
+      if (room.expiresAt <= now) continue;
+      const connectedPlayers = room.players.filter(
+        (player) => player.connected,
+      ).length;
+      if (connectedPlayers > 0) activeRooms += 1;
+      activePlayers += connectedPlayers;
+    }
+    return { activeRooms, activePlayers };
+  }
+
   /** Hydrate persisted rooms. Every player is disconnected until a socket authenticates. */
   restoreDurableState(states: readonly DurableRoomState[]): void {
     this.rooms.clear();

@@ -1,0 +1,109 @@
+{
+  "annotations": { "list": [] },
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 5, "w": 8, "x": 0, "y": 0 },
+      "id": 1,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
+      "targets": [{ "expr": "sum(increase(drawoff_gameplay_rooms_created_total{deployment_environment_name=~\"$environment\",service_version=~\"$version\"}[$__range]))", "refId": "A" }],
+      "title": "Rooms created",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 5, "w": 8, "x": 8, "y": 0 },
+      "id": 2,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
+      "targets": [{ "expr": "sum(drawoff_gameplay_rooms_active{deployment_environment_name=~\"$environment\",service_version=~\"$version\"})", "refId": "A" }],
+      "title": "Active rooms",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 5, "w": 8, "x": 16, "y": 0 },
+      "id": 3,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
+      "targets": [{ "expr": "sum(drawoff_gameplay_players_active{deployment_environment_name=~\"$environment\",service_version=~\"$version\"})", "refId": "A" }],
+      "title": "Active players",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 5, "w": 8, "x": 0, "y": 5 },
+      "id": 4,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
+      "targets": [{ "expr": "sum(increase(drawoff_gameplay_matches_started_total{deployment_environment_name=~\"$environment\",service_version=~\"$version\"}[$__range]))", "refId": "A" }],
+      "title": "Matches started",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 5 },
+      "id": 5,
+      "targets": [{ "expr": "sum(rate(drawoff_gameplay_drawing_operations_total{deployment_environment_name=~\"$environment\",service_version=~\"$version\"}[$__rate_interval]))", "legendFormat": "operations", "refId": "A" }],
+      "title": "Drawing operations / second",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 5 },
+      "id": 6,
+      "targets": [{ "expr": "sum by (drawoff_operation_kind, drawoff_operation_name) (rate(drawoff_backend_operation_failures_total{deployment_environment_name=~\"$environment\",service_version=~\"$version\"}[$__rate_interval]))", "legendFormat": "{{drawoff_operation_kind}} / {{drawoff_operation_name}}", "refId": "A" }],
+      "title": "Operation failures / second",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 41,
+  "tags": ["drawoff", "opentelemetry"],
+  "templating": {
+    "list": [
+      {
+        "allValue": ".*",
+        "current": {},
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "definition": "label_values(drawoff_backend_operations_total, deployment_environment_name)",
+        "includeAll": true,
+        "label": "Environment",
+        "name": "environment",
+        "options": [],
+        "query": { "query": "label_values(drawoff_backend_operations_total, deployment_environment_name)", "refId": "PrometheusVariableQueryEditor-Environment" },
+        "refresh": 1,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {},
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "definition": "label_values(drawoff_backend_operations_total{deployment_environment_name=~\"$environment\"}, service_version)",
+        "includeAll": true,
+        "label": "Deployed version",
+        "name": "version",
+        "options": [],
+        "query": { "query": "label_values(drawoff_backend_operations_total{deployment_environment_name=~\"$environment\"}, service_version)", "refId": "PrometheusVariableQueryEditor-Version" },
+        "refresh": 1,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "DrawOff gameplay overview",
+  "uid": "drawoff-gameplay",
+  "version": 1
+}

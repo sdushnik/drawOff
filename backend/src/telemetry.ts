@@ -11,6 +11,8 @@ import {
   type Counter,
   type Histogram,
   type Logger,
+  type ObservableGauge,
+  type ObservableResult,
   type Span,
   type Tracer,
 } from "@opentelemetry/api";
@@ -34,6 +36,12 @@ export interface BackendTelemetry {
   startDatabaseOperation(
     operation: DatabaseTelemetryOperation,
   ): TelemetryOperation;
+  recordRoomCreated(): void;
+  recordMatchStarted(): void;
+  recordDrawingOperations(count: number): void;
+  observeGameplayState(
+    read: () => { activeRooms: number; activePlayers: number },
+  ): () => void;
 }
 
 const instrumentationName = "@drawoff/backend";
@@ -66,6 +74,7 @@ class OpenTelemetryOperation implements TelemetryOperation {
     private readonly attributes: Attributes,
     private readonly counter: Counter,
     private readonly duration: Histogram,
+    private readonly failures: Counter,
     private readonly logger: Logger,
   ) {}
 
@@ -87,6 +96,12 @@ class OpenTelemetryOperation implements TelemetryOperation {
     });
     this.counter.add(1, finalAttributes, this.operationContext);
     this.duration.record(durationMs, finalAttributes, this.operationContext);
+    if (outcome === "error") {
+      this.failures.add(1, {
+        "drawoff.operation.kind": this.attributes["drawoff.operation.kind"],
+        "drawoff.operation.name": this.attributes["drawoff.operation.name"],
+      });
+    }
     this.logger.emit({
       body: "Backend operation completed.",
       severityNumber:
@@ -107,6 +122,12 @@ export class OpenTelemetryBackendTelemetry implements BackendTelemetry {
     tracer: Tracer;
     counter: Counter;
     duration: Histogram;
+    failures: Counter;
+    roomsCreated: Counter;
+    matchesStarted: Counter;
+    drawingOperations: Counter;
+    activeRooms: ObservableGauge;
+    activePlayers: ObservableGauge;
     logger: Logger;
   };
 
@@ -122,6 +143,26 @@ export class OpenTelemetryBackendTelemetry implements BackendTelemetry {
         description: "DrawOff backend operation duration.",
         unit: "ms",
       }),
+      failures: meter.createCounter("drawoff.backend.operation.failures", {
+        description: "Failed DrawOff backend operations.",
+      }),
+      roomsCreated: meter.createCounter("drawoff.gameplay.rooms.created", {
+        description: "Successfully committed DrawOff room creations.",
+      }),
+      matchesStarted: meter.createCounter("drawoff.gameplay.matches.started", {
+        description: "Successfully committed DrawOff match starts.",
+      }),
+      drawingOperations: meter.createCounter(
+        "drawoff.gameplay.drawing.operations",
+        { description: "Accepted DrawOff drawing operations." },
+      ),
+      activeRooms: meter.createObservableGauge("drawoff.gameplay.rooms.active", {
+        description: "Non-expired DrawOff rooms with connected players.",
+      }),
+      activePlayers: meter.createObservableGauge(
+        "drawoff.gameplay.players.active",
+        { description: "Connected DrawOff players in non-expired rooms." },
+      ),
       logger: logs.getLogger(instrumentationName),
     };
     return this.instruments;
@@ -141,6 +182,7 @@ export class OpenTelemetryBackendTelemetry implements BackendTelemetry {
       attributes,
       instruments.counter,
       instruments.duration,
+      instruments.failures,
       instruments.logger,
     );
   }
@@ -173,6 +215,38 @@ export class OpenTelemetryBackendTelemetry implements BackendTelemetry {
       "drawoff.operation.name": operation,
       "db.system.name": "kysely",
     });
+  }
+
+  recordRoomCreated(): void {
+    this.getInstruments().roomsCreated.add(1);
+  }
+
+  recordMatchStarted(): void {
+    this.getInstruments().matchesStarted.add(1);
+  }
+
+  recordDrawingOperations(count: number): void {
+    if (Number.isSafeInteger(count) && count > 0) {
+      this.getInstruments().drawingOperations.add(count);
+    }
+  }
+
+  observeGameplayState(
+    read: () => { activeRooms: number; activePlayers: number },
+  ): () => void {
+    const instruments = this.getInstruments();
+    const observeRooms = (result: ObservableResult) => {
+      result.observe(read().activeRooms);
+    };
+    const observePlayers = (result: ObservableResult) => {
+      result.observe(read().activePlayers);
+    };
+    instruments.activeRooms.addCallback(observeRooms);
+    instruments.activePlayers.addCallback(observePlayers);
+    return () => {
+      instruments.activeRooms.removeCallback(observeRooms);
+      instruments.activePlayers.removeCallback(observePlayers);
+    };
   }
 }
 

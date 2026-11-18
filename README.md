@@ -91,10 +91,10 @@ DATABASE_URL='sqlite:./data/drawoff.sqlite' \
 npm run dev --workspace @drawoff/backend
 ```
 
-The backend exports traces, the `drawoff.backend.operations` counter, the
-`drawoff.backend.operation.duration` histogram, and trace-correlated operation
-logs for Fastify, inbound Socket.IO events, and repository operations. Resource
-identity uses `OTEL_SERVICE_NAME` (default `drawoff-backend`),
+The backend exports traces, bounded operation metrics and correlated logs, plus
+label-free gameplay counters/gauges for rooms, connected players, matches, and
+accepted drawing operations. Resource identity uses `OTEL_SERVICE_NAME`
+(default `drawoff-backend`),
 `DRAWOFF_DEPLOYMENT_ENVIRONMENT`, and `DRAWOFF_SERVICE_VERSION` or Render's
 `RENDER_GIT_COMMIT`.
 

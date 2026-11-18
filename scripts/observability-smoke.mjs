@@ -3,6 +3,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { io as createSocketClient } from "socket.io-client";
 
 const composeFile = "observability/compose.yaml";
 const project = process.env["DRAWOFF_OBSERVABILITY_PROJECT"] ??
@@ -93,6 +94,18 @@ try {
     return response.ok;
   });
   await fetch("http://127.0.0.1:39001/health");
+  const client = createSocketClient("http://127.0.0.1:39001", {
+    transports: ["websocket"],
+    reconnection: false,
+  });
+  await new Promise((resolve, reject) => {
+    client.on("connect_error", reject);
+    client.emit("room:create", { name: "Telemetry Smoke" }, (response) => {
+      if ("error" in response) reject(new Error(response.error.message));
+      else resolve(response);
+    });
+  });
+  client.close();
   await delay(1_500);
   backend.kill("SIGTERM");
   const exit = await waitForExit(backend);
@@ -102,7 +115,7 @@ try {
   const prometheusQuery = new URL("http://127.0.0.1:9090/api/v1/query");
   prometheusQuery.searchParams.set(
     "query",
-    'sum({__name__=~"drawoff_backend_operations.*",service_name="drawoff-backend-smoke"})',
+    'sum(drawoff_gameplay_rooms_created_total{service_name="drawoff-backend-smoke",deployment_environment_name="smoke",service_version="smoke"})',
   );
   await poll("DrawOff metrics in Prometheus", async () => {
     const result = await json(prometheusQuery);
@@ -133,7 +146,13 @@ try {
     grafanaSources.map((source) => source.uid).sort(),
     ["loki", "prometheus", "tempo"],
   );
-  console.log("PASS: Prometheus metrics, Loki logs, Tempo traces, and Grafana data sources verified.");
+  const grafanaDashboards = await json(
+    "http://127.0.0.1:3001/api/search?query=DrawOff%20gameplay",
+  );
+  assert.ok(
+    grafanaDashboards.some((dashboard) => dashboard.uid === "drawoff-gameplay"),
+  );
+  console.log("PASS: gameplay metrics, Loki logs, Tempo traces, and the Grafana dashboard verified.");
 } catch (error) {
   failed = true;
   console.error(error);

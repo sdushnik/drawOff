@@ -176,12 +176,15 @@ three authoritative operation boundaries:
   never attributes, span events, or log bodies.
 
 All completion logs use the fixed body `Backend operation completed.` and the
-same active span context as their operation. The exported metrics are
-`drawoff.backend.operations` and `drawoff.backend.operation.duration`. The
-attribute set is intentionally low-cardinality: operation kind/name/outcome,
-duration, safe HTTP method/route class, and fixed subsystem names. Do not add
-player names or IDs, session tokens, room codes, prompts, ratings, drawing
-operations, arbitrary errors, request URLs, or database data to telemetry.
+same active span context as their operation. The exported operation metrics are
+`drawoff.backend.operations`, `drawoff.backend.operation.duration`, and
+`drawoff.backend.operation.failures`. The failure counter uses only bounded
+operation kind/name labels. Label-free gameplay metrics report committed room
+creations and match starts, accepted drawing operations, non-expired rooms
+with connected participants, and connected players. Resource attributes carry
+the deployment environment and version. Do not add player names or IDs,
+session tokens, room codes, prompts, ratings, drawing contents, arbitrary
+errors, request URLs, or database data to telemetry.
 
 Telemetry is disabled unless `DRAWOFF_TELEMETRY_ENABLED` is exactly `true`.
 When disabled, the OpenTelemetry APIs remain no-op and no collector connection

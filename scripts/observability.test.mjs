@@ -11,6 +11,12 @@ const collector = parse(read("observability/otel-collector.yaml"));
 const grafana = parse(
   read("observability/grafana/provisioning/datasources/datasources.yaml"),
 );
+const dashboardProvider = parse(
+  read("observability/grafana/provisioning/dashboards/dashboards.yaml"),
+);
+const dashboard = JSON.parse(
+  read("observability/grafana/dashboards/drawoff-overview.json"),
+);
 
 test("observability Compose project is isolated, pinned, and health checked", () => {
   execFileSync(
@@ -79,4 +85,30 @@ test("Grafana provisions linked Prometheus, Loki, and Tempo data sources", () =>
     byUid.loki.jsonData.derivedFields[0].datasourceUid,
     "tempo",
   );
+});
+
+test("Grafana provisions the filtered DrawOff gameplay dashboard", () => {
+  assert.equal(dashboardProvider.providers[0].options.path, "/etc/grafana/dashboards");
+  assert.equal(dashboard.uid, "drawoff-gameplay");
+  assert.deepEqual(
+    dashboard.templating.list.map((variable) => variable.name),
+    ["environment", "version"],
+  );
+
+  const panels = Object.fromEntries(
+    dashboard.panels.map((panel) => [panel.title, panel]),
+  );
+  for (const title of [
+    "Rooms created",
+    "Active rooms",
+    "Active players",
+    "Matches started",
+    "Drawing operations / second",
+    "Operation failures / second",
+  ]) {
+    assert.ok(panels[title], `${title} panel is provisioned`);
+    const query = panels[title].targets.map((target) => target.expr).join(" ");
+    assert.match(query, /deployment_environment_name=~"\$environment"/u);
+    assert.match(query, /service_version=~"\$version"/u);
+  }
 });

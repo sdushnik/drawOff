@@ -552,6 +552,7 @@ function registerRoomHandlers(
             await attach(socket, created);
             return created;
           });
+          telemetry.recordRoomCreated();
           publishRoom(session.roomCode);
           return { session };
         },
@@ -714,6 +715,7 @@ function registerRoomHandlers(
         async ({ session }) => {
           assertAttached(socket, session);
           await persistMutation(() => matchStateMachine.startMatch(session));
+          telemetry.recordMatchStarted();
           publishRoom(session.roomCode);
           return {};
         },
@@ -771,16 +773,17 @@ function registerRoomHandlers(
           assertAttached(socket, session);
           enforceAttachedRateLimits(socket, "drawing");
           const authenticated = attachedSessions.get(socket.id)!;
-          const changed = await drawingMutation(() =>
-            matchStateMachine.sendDrawOps(authenticated, ops),
+          const acceptedOperations = await drawingMutation(() =>
+            matchStateMachine.sendDrawOpsCount(authenticated, ops),
           );
-          if (changed) {
+          if (acceptedOperations > 0) {
             const shouldAwaitPersistence =
               persistenceInFlight === null && drawingPersistenceTimer === null;
             if (shouldAwaitPersistence) {
               await persist();
             }
             scheduleDrawingPersistence();
+            telemetry.recordDrawingOperations(acceptedOperations);
             publishDrawingViews(authenticated.roomCode, authenticated.playerId);
           }
           return {};
@@ -946,6 +949,12 @@ export function createServer(
   const roomService = options.roomService ?? createRoomService();
   const telemetry = options.telemetry ?? backendTelemetry;
   const app = Fastify({ logger: options.logger ?? true });
+  const stopObservingGameplayState = telemetry.observeGameplayState(() =>
+    roomService.getGameplayActivity(),
+  );
+  app.addHook("onClose", async () => {
+    stopObservingGameplayState();
+  });
   const httpOperations = new WeakMap<object, TelemetryOperation>();
   app.addHook("onRequest", (request, _reply, done) => {
     const operation = telemetry.startHttpRequest(

@@ -128,11 +128,17 @@ test("Fastify, Socket.IO, and database telemetry is correlated and payload-free"
     });
   });
 
+  telemetry.recordMatchStarted();
+  telemetry.recordDrawingOperations(3);
+  telemetry.startSocketEvent("room:join").end("error");
+
   const repository = KyselyGameStateRepository.open("sqlite::memory:", telemetry);
   await repository.migrate();
   await repository.load();
   await repository.replace({ rooms: [], matches: [] });
   await repository.close();
+
+  await meterProvider.forceFlush();
 
   client.close();
   await new Promise<void>((resolve) => server.io.close(() => resolve()));
@@ -192,11 +198,49 @@ test("Fastify, Socket.IO, and database telemetry is correlated and payload-free"
     assert.equal(serializedTelemetry.includes(forbidden), false);
   }
 
-  const metricNames = metricExporter
+  const exportedMetrics = metricExporter
     .getMetrics()
     .flatMap((resourceMetrics) => resourceMetrics.scopeMetrics)
-    .flatMap((scopeMetrics) => scopeMetrics.metrics)
-    .map((metric) => metric.descriptor.name);
+    .flatMap((scopeMetrics) => scopeMetrics.metrics);
+  const metricNames = exportedMetrics.map((metric) => metric.descriptor.name);
   assert.ok(metricNames.includes("drawoff.backend.operations"));
   assert.ok(metricNames.includes("drawoff.backend.operation.duration"));
+  assert.ok(metricNames.includes("drawoff.backend.operation.failures"));
+  assert.ok(metricNames.includes("drawoff.gameplay.rooms.created"));
+  assert.ok(metricNames.includes("drawoff.gameplay.matches.started"));
+  assert.ok(metricNames.includes("drawoff.gameplay.drawing.operations"));
+  assert.ok(metricNames.includes("drawoff.gameplay.rooms.active"));
+  assert.ok(metricNames.includes("drawoff.gameplay.players.active"));
+
+  const gameplayMetrics = exportedMetrics.filter((metric) =>
+    metric.descriptor.name.startsWith("drawoff.gameplay."),
+  );
+  assert.ok(gameplayMetrics.length >= 5);
+  for (const metric of gameplayMetrics) {
+    for (const point of metric.dataPoints) {
+      assert.deepEqual(point.attributes, {});
+    }
+  }
+
+  const failures = exportedMetrics.find(
+    (metric) => metric.descriptor.name === "drawoff.backend.operation.failures",
+  );
+  assert.ok(failures);
+  assert.ok(
+    failures.dataPoints.some(
+      (point) =>
+        point.attributes["drawoff.operation.kind"] === "socket.io" &&
+        point.attributes["drawoff.operation.name"] === "room:join" &&
+        Object.keys(point.attributes).length === 2,
+    ),
+  );
+
+  const activeRooms = exportedMetrics.find(
+    (metric) => metric.descriptor.name === "drawoff.gameplay.rooms.active",
+  );
+  const activePlayers = exportedMetrics.find(
+    (metric) => metric.descriptor.name === "drawoff.gameplay.players.active",
+  );
+  assert.ok(activeRooms?.dataPoints.some((point) => point.value === 1));
+  assert.ok(activePlayers?.dataPoints.some((point) => point.value === 1));
 });
