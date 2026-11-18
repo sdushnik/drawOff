@@ -1,7 +1,12 @@
 import { canvasInkPixelCount, drawCanvasStroke, renderedCanvasHash } from "./canvas-helpers";
 import { expect, test, type Player } from "./fixtures";
 import { createRoom, joinRoom } from "./room-helpers";
-import { currentView, frontendServiceCall, storedSession } from "./service-helpers";
+import {
+  currentView,
+  frontendServiceCall,
+  openRoomWithSavedSession,
+  storedSession,
+} from "./service-helpers";
 
 test("a required browser timing out cancels the incomplete match without a winner", async ({
   players: playerPool,
@@ -330,26 +335,15 @@ test("refreshing preserves lobby identity, word selection, and Artist drawing ca
   await expect.poll(() => renderedCanvasHash(artist1.page.getByLabel("Your canvas"))).toBe(hashRestored);
 
   const attacker = await playerPool.create("Attacker");
-  await attacker.page.goto(`/room/${code}`);
   const victimSession = await storedSession(artist1.page);
-  await attacker.page.evaluate(
-    ({ roomCode, playerId }) => {
-      sessionStorage.setItem(
-        `drawoff:session:${roomCode}`,
-        JSON.stringify({
-          roomCode,
-          playerId,
-          token: "spoofed-invalid-token-12345",
-        }),
-      );
-    },
-    { roomCode: code, playerId: victimSession.playerId },
-  );
-
+  await openRoomWithSavedSession(attacker.page, {
+    roomCode: code,
+    playerId: victimSession.playerId,
+    token: "spoofed-invalid-token-12345",
+  });
+  await expect(attacker.page.getByText("Your saved session is no longer valid")).toBeVisible();
   await attacker.page.reload();
-  await expect(
-    attacker.page.getByText("Your saved session is no longer valid"),
-  ).toBeVisible();
+  await expect(attacker.page.getByText("Your saved session is no longer valid")).toBeVisible();
   await expect(attacker.page.getByRole("button", { name: "Join room" })).toBeVisible();
 
   await expect(artist1.page.getByLabel("Your canvas")).toBeVisible();

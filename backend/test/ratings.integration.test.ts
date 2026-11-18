@@ -102,7 +102,8 @@ test("Socket.IO ratings finalize atomically, reveal results to everyone, and ret
   let nextPlayerId = 0;
   const roomService = new RoomService({
     now: clock.now,
-    generateId: () => `player-${++nextPlayerId}`,
+    // Keep real identities disjoint from anonymous-player-* fixtures used in Judge views.
+    generateId: () => `private-player-${++nextPlayerId}`,
   });
   const { app, io } = createServer({
     logger: false,

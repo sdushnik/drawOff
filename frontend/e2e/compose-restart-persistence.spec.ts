@@ -7,7 +7,7 @@ import {
 import { restartComposeApp } from "./compose-helpers";
 import { expect, test, type Player } from "./fixtures";
 import { createRoom, joinRoom } from "./room-helpers";
-import { currentView, storedSession } from "./service-helpers";
+import { currentView, openRoomWithSavedSession, storedSession } from "./service-helpers";
 
 test("Compose app container restart restores unexpired rooms, drawing canvas, roles, deadlines, and scores", async ({
   players,
@@ -123,21 +123,13 @@ test("Compose app container restart restores unexpired rooms, drawing canvas, ro
 
   // Authorization: invalid/spoofed token rejected post-restart
   const attacker = await players.create("Attacker");
-  await attacker.page.goto(`/room/${code}`);
   const victimSession = await storedSession(artist.page);
-  await attacker.page.evaluate(
-    ({ roomCode, playerId }) => {
-      sessionStorage.setItem(
-        `drawoff:session:${roomCode}`,
-        JSON.stringify({
-          roomCode,
-          playerId,
-          token: "spoofed-post-restart-token-12345",
-        }),
-      );
-    },
-    { roomCode: code, playerId: victimSession.playerId },
-  );
+  await openRoomWithSavedSession(attacker.page, {
+    roomCode: code,
+    playerId: victimSession.playerId,
+    token: "spoofed-post-restart-token-12345",
+  });
+  await expect(attacker.page.getByText("Your saved session is no longer valid")).toBeVisible();
   await attacker.page.reload();
   await expect(attacker.page.getByText("Your saved session is no longer valid")).toBeVisible();
   await expect(attacker.page.getByRole("button", { name: "Join room" })).toBeVisible();

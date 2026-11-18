@@ -58,6 +58,16 @@ export async function storedSession(page: Page): Promise<Session> {
   });
 }
 
+export async function openRoomWithSavedSession(page: Page, session: Session): Promise<void> {
+  await page.addInitScript((savedSession) => {
+    sessionStorage.setItem(
+      `drawoff:session:${savedSession.roomCode}`,
+      JSON.stringify(savedSession),
+    );
+  }, session);
+  await page.goto(`/room/${session.roomCode}`);
+}
+
 export async function currentView(page: Page): Promise<PlayerView> {
   const session = await storedSession(page);
   const service = createSocketGameService(serverUrl());
