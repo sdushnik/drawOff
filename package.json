@@ -19,6 +19,8 @@
     "build": "npm run build --workspaces --if-present",
     "db:migrate": "npm run db:migrate --workspace @drawoff/backend",
     "smoke:container": "node scripts/container-smoke.mjs",
+    "smoke:observability": "node scripts/observability-smoke.mjs",
+    "test:observability": "node --test scripts/observability.test.mjs",
     "verify:compose:websocket": "node scripts/container-smoke.mjs --websocket-only",
     "verify:compose:persistence": "node scripts/compose-persistence.mjs"
   },

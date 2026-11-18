@@ -107,6 +107,11 @@ secret manager, never in source or a frontend `VITE_*` variable. Full setup,
 shutdown, validation, and Render guidance is in
 [`_docs/deployment.md`](_docs/deployment.md#opentelemetry-export).
 
+For local metrics, logs, traces, and a pre-provisioned Grafana instance, use
+the separate [`observability/`](observability/README.md) Compose project. It
+accepts the same OTLP endpoint without coupling its lifecycle or storage to the
+application stack.
+
 ## Local PostgreSQL Compose stack
 
 The root [`compose.yaml`](compose.yaml) builds the existing DrawOff production
