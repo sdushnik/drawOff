@@ -78,7 +78,29 @@ The test command refuses PostgreSQL databases whose name does not begin with
 credential-safe deployment examples are in
 [`_docs/deployment.md`](_docs/deployment.md).
 
-## Backend telemetry
+## Operations and observability
+
+DrawOff's Assignment 2 Part II operations path includes:
+
+- independent Render development and production services and PostgreSQL data;
+- automatic deployment of verified `main` pushes to development and an
+  explicit manual production workflow;
+- OpenTelemetry metrics, traces, and correlated logs;
+- a separate local Prometheus, Loki, Tempo, Grafana, and OpenTelemetry
+  Collector stack;
+- privacy-safe gameplay metrics and a provisioned Grafana dashboard;
+- a sustained drawing-operation failure alert with a response runbook; and
+- a local-only, read-only Codex on-call responder proof of concept.
+
+The deployed environments are:
+
+- Development: <https://drawoff-development.onrender.com>
+- Production: <https://drawoff.onrender.com>
+
+Both expose `/health`. Observability and the AI responder remain local-only;
+they are not deployed to either Render environment.
+
+### Backend telemetry
 
 OpenTelemetry is opt-in. Set `DRAWOFF_TELEMETRY_ENABLED=true` and configure an
 OTLP/HTTP protobuf receiver with the standard `OTEL_EXPORTER_OTLP_*`
@@ -116,6 +138,44 @@ The optional local-only [`on-call-engineer/`](on-call-engineer/README.md)
 proof of concept can turn a firing drawing-failure alert into a redacted
 dry-run, deterministic fake report, or explicitly enabled read-only Codex
 incident report. It is not deployed and performs no remediation or Git action.
+
+### Drawing-operation alert
+
+The `DrawOffSustainedDrawingOperationFailures` alert requires all of the
+following conditions:
+
+- more than 20% of drawing operations fail over five minutes;
+- at least five failures occur in that interval; and
+- the condition remains true for 10 minutes.
+
+The alert groups by environment and deployed version, has `warning` severity,
+and is owned by `gameplay-backend`. See the
+[`drawing-operation-failures` runbook](observability/runbooks/drawing-operation-failures.md)
+for investigation, mitigation, resolution, and safe local test procedures.
+
+### Controlled AI on-call demonstration
+
+The responder defaults to dry-run and does not invoke AI unless explicitly
+enabled. To demonstrate the real responder safely, start the loopback-only
+synthetic alert API in one terminal:
+
+```sh
+npm run oncall:demo-server
+```
+
+Then run the locally authenticated Codex provider in another terminal:
+
+```sh
+ONCALL_MODE=agent \
+ONCALL_PROMETHEUS_URL=http://127.0.0.1:39070 \
+npm run oncall
+```
+
+The command prints one structured incident report for synthetic evidence. It
+does not use an API key from the repository, contact production, modify code,
+commit, push, deploy, or perform remediation. Stop the demo server with
+`Ctrl-C`. See [`on-call-engineer/README.md`](on-call-engineer/README.md) for
+dry-run, fake-agent, authentication-failure, and containment details.
 
 ## Local PostgreSQL Compose stack
 
